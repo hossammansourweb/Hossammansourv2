@@ -59,6 +59,7 @@ export type ConfirmationMethod = 'whatsapp' | 'sms' | 'call';
 export interface Appointment {
   id: string;
   bookingNumber: string;
+  bookingNumber_lower?: string;
   patientId?: string;
   patientName: string;
   patientPhone: string;

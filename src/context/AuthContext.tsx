@@ -28,45 +28,48 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('clinic_auth_token'));
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  // Optional in-memory profile cache; no JWT in localStorage anymore.
+  const tokenValue: string | null = null;
+
   useEffect(() => {
-    async function loadUser() {
-      const storedToken = localStorage.getItem('clinic_auth_token');
-      if (!storedToken) {
-        setIsLoading(false);
-        return;
-      }
-      try {
-        const res = await api.getMe();
-        if (res.success && res.data) {
-          setUser(res.data);
-        } else {
-          localStorage.removeItem('clinic_auth_token');
-          setToken(null);
+    // Restore session from Firebase Auth (persistent under the hood).
+    const unsubscribe = api.onAuthStateChanged(async fbUser => {
+      if (fbUser) {
+        try {
+          const res = await api.getMe();
+          if (res.success && res.data) {
+            setUser(res.data);
+          } else {
+            await api.signOut();
+            setUser(null);
+          }
+        } catch {
+          // Profile fetch failed; keep user signed out of view but sign out auth.
+          await api.signOut().catch(() => {});
           setUser(null);
         }
-      } catch (err) {
-        localStorage.removeItem('clinic_auth_token');
-        setToken(null);
+      } else {
         setUser(null);
-      } finally {
-        setIsLoading(false);
       }
-    }
-    loadUser();
+      setIsLoading(false);
+    });
+    return unsubscribe;
   }, []);
 
   const login = async (identifier: string, pass: string): Promise<User> => {
-    const res = await api.login(identifier, pass);
+    // Resolve an email from a phone-or-email, then do Firebase sign-in.
+    const email = identifier.includes('@')
+      ? identifier.trim()
+      : (await api.login(identifier, pass)).data.email;
+    await api.signInWithEmailAndPassword(email, pass);
+    const res = await api.getMe();
     if (res.success && res.data) {
-      localStorage.setItem('clinic_auth_token', res.data.token);
-      setToken(res.data.token);
-      setUser(res.data.user);
-      return res.data.user;
+      setUser(res.data);
+      return res.data;
     }
-    throw new Error(res.message || 'فشل في تسجيل الدخول.');
+    throw new Error('فشل في استرجاع بيانات الحساب بعد تسجيل الدخول.');
   };
 
   const register = async (payload: {
@@ -77,19 +80,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     gender?: 'male' | 'female';
     age?: number;
   }): Promise<User> => {
+    // Create the Firebase Auth account first (via the server-side helper),
+    // then sign in and fetch profile. We call the server register endpoint which
+    // creates the Auth user AND the Firestore profile doc.
     const res = await api.register(payload);
-    if (res.success && res.data) {
-      localStorage.setItem('clinic_auth_token', res.data.token);
-      setToken(res.data.token);
-      setUser(res.data.user);
+    if (res.success && res.data?.user) {
+      // Sign in with Firebase Auth using the resolved email.
+      const email = res.data.user.email || `${payload.phone.trim()}@hossam-clinic.local`;
+      await api.signInWithEmailAndPassword(email, payload.password);
+      const me = await api.getMe();
+      if (me.success && me.data) {
+        setUser(me.data);
+        return me.data;
+      }
       return res.data.user;
     }
     throw new Error(res.message || 'فشل في إنشاء الحساب.');
   };
 
-  const logout = () => {
-    localStorage.removeItem('clinic_auth_token');
-    setToken(null);
+  const logout = async () => {
+    await api.signOut().catch(() => {});
     setUser(null);
   };
 
@@ -108,7 +118,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider
       value={{
         user,
-        token,
+        token: tokenValue,
         isLoading,
         login,
         register,

@@ -1,14 +1,11 @@
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db.ts';
 import { User, UserRole } from './src/types/index.ts';
 
 const app = express();
 const PORT = 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'doctor-hossam-mansour-medical-clinic-jwt-secret-key-2026';
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -19,7 +16,9 @@ export interface AuthRequest extends Request {
 }
 
 // Authentication Middleware
-export function authenticateToken(req: AuthRequest, res: Response, next: NextFunction) {
+// Expects `Authorization: Bearer <firebase-id-token>` and resolves the user
+// from Firebase Authentication + the Firestore users/{uid} profile doc.
+export async function authenticateToken(req: AuthRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
@@ -27,18 +26,19 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
     return res.status(401).json({ success: false, message: 'يرجى تسجيل الدخول أولاً للوصول إلى هذه الخدمة.' });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, payload: any) => {
-    if (err || !payload || !payload.id) {
-      return res.status(403).json({ success: false, message: 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً.' });
-    }
-    const user = db.findUserById(payload.id);
+  try {
+    const { firebaseAuth } = await import('./server/firebase.ts');
+    const decoded = await firebaseAuth().verifyIdToken(token);
+    const user = await db.findUserById(decoded.uid);
     if (!user) {
       return res.status(403).json({ success: false, message: 'المستخدم غير موجود بالنظام.' });
     }
-    const { passwordHash: _, ...safeUser } = user;
-    req.user = safeUser;
+    const { passwordHash: _omit, ...safeUser } = user as any;
+    req.user = safeUser as User;
     next();
-  });
+  } catch (err) {
+    return res.status(403).json({ success: false, message: 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً.' });
+  }
 }
 
 // Role Authorization Middleware
@@ -54,6 +54,12 @@ export function requireRoles(...allowedRoles: UserRole[]) {
   };
 }
 
+// Wrap async route handlers to forward errors to next()
+const wrap = (fn: (req: AuthRequest, res: Response) => Promise<any>) =>
+  (req: AuthRequest, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res)).catch(next);
+  };
+
 // ----------------------------------------------------
 // 1. PUBLIC API ROUTES
 // ----------------------------------------------------
@@ -64,935 +70,803 @@ app.get('/api/health', (req, res) => {
 });
 
 // Clinic Public Metadata & Content
-app.get('/api/public/clinic-info', (req, res) => {
-  try {
-    const branches = db.getBranches(false);
-    const services = db.getServices(false);
-    const doctorProfile = db.getDoctorProfile();
-    const reviews = db.getReviews(false);
-    const faqs = db.getFaqs(false);
-    const announcements = db.getAnnouncements(true);
+app.get('/api/public/clinic-info', wrap(async (req, res) => {
+  const [branches, services, doctorProfile, reviews, faqs, announcements] = await Promise.all([
+    db.getBranches(false),
+    db.getServices(false),
+    db.getDoctorProfile(),
+    db.getReviews(false),
+    db.getFaqs(false),
+    db.getAnnouncements(true),
+  ]);
 
-    res.json({
-      success: true,
-      data: {
-        branches,
-        services,
-        doctorProfile,
-        reviews,
-        faqs,
-        announcements,
-      },
-    });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message || 'خطأ في جلب بيانات العيادة' });
-  }
-});
+  res.json({
+    success: true,
+    data: {
+      branches,
+      services,
+      doctorProfile,
+      reviews,
+      faqs,
+      announcements,
+    },
+  });
+}));
 
 // Calculate Available Slots for a given branch, service, and date
-app.get('/api/public/available-slots', (req, res) => {
-  try {
-    const { branchId, serviceId, date } = req.query as { branchId: string; serviceId: string; date: string };
+app.get('/api/public/available-slots', wrap(async (req, res) => {
+  const { branchId, serviceId, date } = req.query as { branchId: string; serviceId: string; date: string };
 
-    if (!branchId || !date) {
-      return res.status(400).json({ success: false, message: 'يرجى تحديد الفرع وتاريخ الحجز.' });
-    }
-
-    const slots = db.calculateAvailableSlots(branchId, serviceId || '', date);
-    res.json({ success: true, data: slots });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message || 'خطأ في حساب المواعيد المتاحة' });
+  if (!branchId || !date) {
+    return res.status(400).json({ success: false, message: 'يرجى تحديد الفرع وتاريخ الحجز.' });
   }
-});
+
+  const slots = await db.calculateAvailableSlots(branchId, serviceId || '', date);
+  res.json({ success: true, data: slots });
+}));
 
 // Book an Appointment (Public or Authenticated Patient)
-app.post('/api/public/appointments/book', (req: AuthRequest, res) => {
-  try {
-    const {
-      patientName,
-      patientPhone,
-      patientEmail,
-      patientAge,
-      patientGender,
-      serviceId,
-      branchId,
-      appointmentDate,
-      appointmentTime,
-      confirmationMethod,
-      notes,
-    } = req.body;
+app.post('/api/public/appointments/book', wrap(async (req: AuthRequest, res) => {
+  const {
+    patientName,
+    patientPhone,
+    patientEmail,
+    patientAge,
+    patientGender,
+    serviceId,
+    branchId,
+    appointmentDate,
+    appointmentTime,
+    confirmationMethod,
+    notes,
+  } = req.body;
 
-    if (!patientName || !patientPhone || !serviceId || !branchId || !appointmentDate || !appointmentTime) {
-      return res.status(400).json({ success: false, message: 'يرجى إكمال جميع الحقول المطلوبة للحجز.' });
-    }
-
-    // Phone validation (Egypt 10-11 digits)
-    const phoneRegex = /^01[0125][0-9]{8}$/;
-    const cleanPhone = patientPhone.trim().replace(/\s+/g, '');
-    if (!phoneRegex.test(cleanPhone)) {
-      return res.status(400).json({ success: false, message: 'يرجى إدخال رقم هاتف مصري صحيح (مثال: 01100171817).' });
-    }
-
-    let patientId: string | undefined = undefined;
-
-    // If request has auth token, link to user
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    if (token) {
-      try {
-        const payload: any = jwt.verify(token, JWT_SECRET);
-        if (payload?.id) patientId = payload.id;
-      } catch (e) {
-        // Continue as unlinked patient if token invalid
-      }
-    }
-
-    // If no logged in user, try to find existing patient by phone
-    if (!patientId) {
-      const existingUser = db.findUserByPhoneOrEmail(cleanPhone);
-      if (existingUser) {
-        patientId = existingUser.id;
-      }
-    }
-
-    const appointment = db.createAppointment({
-      patientId,
-      patientName,
-      patientPhone: cleanPhone,
-      patientEmail,
-      patientAge: patientAge ? Number(patientAge) : undefined,
-      patientGender,
-      serviceId,
-      branchId,
-      appointmentDate,
-      appointmentTime,
-      confirmationMethod,
-      notes,
-    });
-
-    db.logAudit(
-      patientId || 'anonymous_patient',
-      patientName,
-      'patient',
-      'CREATE_APPOINTMENT',
-      'Appointment',
-      appointment.id,
-      `حجز موعد كشف جديد برقم ${appointment.bookingNumber} في ${appointment.branchName} بتاريخ ${appointment.appointmentDate} الساعة ${appointment.appointmentTime}`
-    );
-
-    res.status(201).json({
-      success: true,
-      message: 'تم تسجيل موعد الكشف بنجاح.',
-      data: appointment,
-    });
-  } catch (error: any) {
-    res.status(400).json({ success: false, message: error.message || 'فشل في إتمام الحجز.' });
+  if (!patientName || !patientPhone || !serviceId || !branchId || !appointmentDate || !appointmentTime) {
+    return res.status(400).json({ success: false, message: 'يرجى إكمال جميع الحقول المطلوبة للحجز.' });
   }
-});
+
+  // Phone validation (Egypt 10-11 digits)
+  const phoneRegex = /^01[0125][0-9]{8}$/;
+  const cleanPhone = patientPhone.trim().replace(/\s+/g, '');
+  if (!phoneRegex.test(cleanPhone)) {
+    return res.status(400).json({ success: false, message: 'يرجى إدخال رقم هاتف مصري صحيح (مثال: 01100171817).' });
+  }
+
+  let patientId: string | undefined = undefined;
+
+  // If request has auth token, link to user
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (token) {
+    try {
+      const { firebaseAuth } = await import('./server/firebase.ts');
+      const decoded = await firebaseAuth().verifyIdToken(token);
+      if (decoded?.uid) patientId = decoded.uid;
+    } catch (e) {
+      // Continue as unlinked patient if token invalid
+    }
+  }
+
+  // If no logged in user, try to find existing patient by phone
+  if (!patientId) {
+    const existingUser = await db.findUserByPhoneOrEmail(cleanPhone);
+    if (existingUser) {
+      patientId = existingUser.id;
+    }
+  }
+
+  const appointment = await db.createAppointment({
+    patientId,
+    patientName,
+    patientPhone: cleanPhone,
+    patientEmail,
+    patientAge: patientAge ? Number(patientAge) : undefined,
+    patientGender,
+    serviceId,
+    branchId,
+    appointmentDate,
+    appointmentTime,
+    confirmationMethod,
+    notes,
+  });
+
+  await db.logAudit(
+    patientId || 'anonymous_patient',
+    patientName,
+    'patient',
+    'CREATE_APPOINTMENT',
+    'Appointment',
+    appointment.id,
+    `حجز موعد كشف جديد برقم ${appointment.bookingNumber} في ${appointment.branchName} بتاريخ ${appointment.appointmentDate} الساعة ${appointment.appointmentTime}`
+  );
+
+  res.status(201).json({
+    success: true,
+    message: 'تم تسجيل موعد الكشف بنجاح.',
+    data: appointment,
+  });
+}));
 
 // Appointment Lookup by Booking Number & Phone
-app.get('/api/public/appointments/lookup', (req, res) => {
-  try {
-    const { bookingNumber, phone } = req.query as { bookingNumber: string; phone: string };
+app.get('/api/public/appointments/lookup', wrap(async (req, res) => {
+  const { bookingNumber, phone } = req.query as { bookingNumber: string; phone: string };
 
-    if (!bookingNumber || !phone) {
-      return res.status(400).json({ success: false, message: 'يرجى إدخال رقم الحجز ورقم الهاتف المسجل.' });
-    }
-
-    const appointment = db.findAppointmentByBookingNumber(bookingNumber);
-    if (!appointment || appointment.patientPhone.replace(/\s+/g, '') !== phone.replace(/\s+/g, '')) {
-      return res.status(404).json({ success: false, message: 'لم يتم العثور على حجز يطابق هذه البيانات.' });
-    }
-
-    res.json({ success: true, data: appointment });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message || 'خطأ في الاستعلام' });
+  if (!bookingNumber || !phone) {
+    return res.status(400).json({ success: false, message: 'يرجى إدخال رقم الحجز ورقم الهاتف المسجل.' });
   }
-});
+
+  const appointment = await db.findAppointmentByBookingNumber(bookingNumber);
+  if (!appointment || appointment.patientPhone.replace(/\s+/g, '') !== phone.replace(/\s+/g, '')) {
+    return res.status(404).json({ success: false, message: 'لم يتم العثور على حجز يطابق هذه البيانات.' });
+  }
+
+  res.json({ success: true, data: appointment });
+}));
 
 // Submit a Patient Review (Requires Admin Approval)
-app.post('/api/public/reviews/submit', (req, res) => {
-  try {
-    const { patientName, rating, reviewText, treatmentType } = req.body;
+app.post('/api/public/reviews/submit', wrap(async (req, res) => {
+  const { patientName, rating, reviewText, treatmentType } = req.body;
 
-    if (!patientName || !rating || !reviewText) {
-      return res.status(400).json({ success: false, message: 'يرجى كتابة الاسم والتقييم ورأيكم.' });
-    }
-
-    const review = db.createReview({
-      patientName: patientName.trim(),
-      rating: Math.min(5, Math.max(1, Number(rating))),
-      reviewText: reviewText.trim(),
-      treatmentType: treatmentType?.trim() || 'كشف واستشارة عظام',
-      visitDate: new Date().toISOString().split('T')[0],
-      isApproved: false, // Strict Admin approval requirement
-      isFeatured: false,
-      order: 10,
-    });
-
-    db.logAudit(
-      'anonymous_patient',
-      patientName,
-      'patient',
-      'SUBMIT_REVIEW',
-      'Review',
-      review.id,
-      `إرسال تقييم مريض جديد في انتظار موافقة الإدارة.`
-    );
-
-    res.status(201).json({
-      success: true,
-      message: 'شكراً لمشاركتنا تجربتكم! سيتم مراجعة التقييم واعتماده من إدارة العيادة قبل النشر.',
-      data: review,
-    });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message || 'فشل في إرسال التقييم.' });
+  if (!patientName || !rating || !reviewText) {
+    return res.status(400).json({ success: false, message: 'يرجى كتابة الاسم والتقييم ورأيكم.' });
   }
-});
+
+  const review = await db.createReview({
+    patientName: patientName.trim(),
+    rating: Math.min(5, Math.max(1, Number(rating))),
+    reviewText: reviewText.trim(),
+    treatmentType: treatmentType?.trim() || 'كشف واستشارة عظام',
+    visitDate: new Date().toISOString().split('T')[0],
+    isApproved: false, // Strict Admin approval requirement
+    isFeatured: false,
+    order: 10,
+  });
+
+  await db.logAudit(
+    'anonymous_patient',
+    patientName,
+    'patient',
+    'SUBMIT_REVIEW',
+    'Review',
+    review.id,
+    `إرسال تقييم مريض جديد في انتظار موافقة الإدارة.`
+  );
+
+  res.status(201).json({
+    success: true,
+    message: 'شكراً لمشاركتنا تجربتكم! سيتم مراجعة التقييم واعتماده من إدارة العيادة قبل النشر.',
+    data: review,
+  });
+}));
 
 // ----------------------------------------------------
-// 2. AUTHENTICATION ROUTES
+// 2. AUTHENTICATION ROUTES (Firebase Auth)
 // ----------------------------------------------------
 
-// Register Patient Account
-app.post('/api/auth/register', (req, res) => {
-  try {
-    const { name, phone, email, password, gender, age } = req.body;
+// Register Patient Account — creates Firebase Auth user + Firestore profile doc
+app.post('/api/auth/register', wrap(async (req, res) => {
+  const { name, phone, email, password, gender, age } = req.body;
 
-    if (!name || !phone || !password) {
-      return res.status(400).json({ success: false, message: 'يرجى كتابة الاسم ورقم الهاتف وكلمة المرور.' });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({ success: false, message: 'كلمة المرور يجب أن لا تقل عن 6 أحرف أو أرقام.' });
-    }
-
-    const cleanPhone = phone.trim().replace(/\s+/g, '');
-    const existing = db.findUserByPhoneOrEmail(cleanPhone);
-    if (existing) {
-      return res.status(409).json({ success: false, message: 'يوجد حساب مسجل بالفعل بهذا الرقم أو البريد.' });
-    }
-
-    const user = db.createUser({
-      name: name.trim(),
-      phone: cleanPhone,
-      email: email?.trim(),
-      password,
-      role: 'patient',
-      gender,
-      age: age ? Number(age) : undefined,
-    });
-
-    const token = jwt.sign({ id: user.id, role: user.role, name: user.name }, JWT_SECRET, {
-      expiresIn: '30d',
-    });
-
-    db.logAudit(user.id, user.name, user.role, 'USER_REGISTER', 'User', user.id, 'تسجيل حساب مريض جديد بالمنصة.');
-
-    res.status(201).json({
-      success: true,
-      message: 'تم إنشاء الحساب بنجاح.',
-      data: { user, token },
-    });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message || 'فشل في إنشاء الحساب.' });
+  if (!name || !phone || !password) {
+    return res.status(400).json({ success: false, message: 'يرجى كتابة الاسم ورقم الهاتف وكلمة المرور.' });
   }
-});
 
-// Login (Email or Phone + Password)
-app.post('/api/auth/login', (req, res) => {
-  try {
-    const { identifier, password } = req.body;
-
-    if (!identifier || !password) {
-      return res.status(400).json({ success: false, message: 'يرجى إدخال رقم الهاتف / البريد وكلمة المرور.' });
-    }
-
-    const userWithHash = db.findUserByPhoneOrEmail(identifier);
-    if (!userWithHash) {
-      return res.status(401).json({ success: false, message: 'بيانات الدخول غير صحيحة، يرجى التأكد من الرقم أو كلمة المرور.' });
-    }
-
-    const isMatch = bcrypt.compareSync(password, userWithHash.passwordHash);
-    if (!isMatch) {
-      return res.status(401).json({ success: false, message: 'كلمة المرور غير صحيحة.' });
-    }
-
-    // Update last login
-    db.updateUser(userWithHash.id, { lastLoginAt: new Date().toISOString() });
-
-    const { passwordHash: _, ...safeUser } = userWithHash;
-    const token = jwt.sign({ id: safeUser.id, role: safeUser.role, name: safeUser.name }, JWT_SECRET, {
-      expiresIn: '30d',
-    });
-
-    db.logAudit(safeUser.id, safeUser.name, safeUser.role, 'USER_LOGIN', 'User', safeUser.id, 'تسجيل دخول ناجح للمنصة.');
-
-    res.json({
-      success: true,
-      message: 'مرحباً بك مجدداً!',
-      data: { user: safeUser, token },
-    });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message || 'فشل في تسجيل الدخول.' });
+  if (password.length < 6) {
+    return res.status(400).json({ success: false, message: 'كلمة المرور يجب أن لا تقل عن 6 أحرف أو أرقام.' });
   }
-});
+
+  const cleanPhone = phone.trim().replace(/\s+/g, '');
+  const existing = await db.findUserByPhoneOrEmail(cleanPhone);
+  if (existing) {
+    return res.status(409).json({ success: false, message: 'يوجد حساب مسجل بالفعل بهذا الرقم أو البريد.' });
+  }
+
+  // Use phone-as-identifier for Firebase Auth. For login, we still accept email OR phone
+  // and resolve to a Firebase Auth account via the local users/{uid} doc.
+  // The Firebase Auth login (email/password) is performed on the client.
+  // For registration, we need an email. Default to phone@hossam-clinic.local if no email.
+  const authEmail = (email && email.trim()) || `${cleanPhone}@hossam-clinic.local`;
+
+  // Check if a Firebase Auth account already uses this email
+  const { firebaseAuth } = await import('./server/firebase.ts');
+  try {
+    await firebaseAuth().getUserByEmail(authEmail);
+    return res.status(409).json({ success: false, message: 'يوجد حساب مرتبط بهذا البريد الإلكتروني بالفعل.' });
+  } catch (e: any) {
+    if (e?.code !== 'auth/user-not-found') {
+      throw e;
+    }
+  }
+
+  const userRecord = await firebaseAuth().createUser({
+    email: authEmail,
+    password,
+    displayName: name,
+  });
+  await firebaseAuth().setCustomUserClaims(userRecord.uid, { role: 'patient' });
+
+  const user = await db.createUserWithId(userRecord.uid, {
+    name: name.trim(),
+    phone: cleanPhone,
+    email: email?.trim(),
+    password,
+    role: 'patient',
+    gender,
+    age: age ? Number(age) : undefined,
+  });
+
+  await db.logAudit(userRecord.uid, user.name, user.role, 'USER_REGISTER', 'User', userRecord.uid, 'تسجيل حساب مريض جديد بالمنصة.');
+
+  res.status(201).json({
+    success: true,
+    message: 'تم إنشاء الحساب بنجاح.',
+    data: { user, token: 'client-side-firebase-auth' },
+  });
+}));
+
+// Login is now handled client-side via Firebase Auth signInWithEmailAndPassword.
+// This endpoint is kept for lookup-by-identifier (used by the client to figure out
+// which Firebase Auth email to use when the user types a phone number) and
+// for verifying the user has a Firestore profile.
+app.post('/api/auth/login', wrap(async (req, res) => {
+  const { identifier } = req.body;
+  if (!identifier) {
+    return res.status(400).json({ success: false, message: 'يرجى إدخال رقم الهاتف / البريد.' });
+  }
+  const user = await db.findUserByPhoneOrEmail(identifier);
+  if (!user) {
+    return res.status(404).json({ success: false, message: 'بيانات الدخول غير صحيحة، يرجى التأكد من الرقم أو كلمة المرور.' });
+  }
+  res.json({
+    success: true,
+    message: 'يرجى إكمال تسجيل الدخول عبر Firebase Auth في الواجهة.',
+    data: { email: user.email || `${user.phone}@hossam-clinic.local`, user },
+  });
+}));
 
 // Get Current User Profile
 app.get('/api/auth/me', authenticateToken, (req: AuthRequest, res) => {
   res.json({ success: true, data: req.user });
 });
 
-// Password Reset Request (Simulated secure reset token)
-app.post('/api/auth/forgot-password', (req, res) => {
+// Password Reset — Firebase Auth sends the email/sms
+app.post('/api/auth/forgot-password', wrap(async (req, res) => {
   const { identifier } = req.body;
-  const user = db.findUserByPhoneOrEmail(identifier);
+  const user = await db.findUserByPhoneOrEmail(identifier);
   if (!user) {
     return res.status(404).json({ success: false, message: 'لم يتم العثور على حساب مرتبط بهذا الرقم أو البريد.' });
   }
-
-  // Simulation: Send reset code / link
-  db.createNotification({
-    recipientPhone: user.phone,
-    recipientEmail: user.email,
-    type: 'reminder',
-    channel: 'sms',
-    content: `رمز استعادة كلمة المرور لعيادة د. حسام منصور هو: ${Math.floor(100000 + Math.random() * 900000)} (صالح لمدة 15 دقيقة)`,
-  });
-
+  const email = user.email || `${user.phone}@hossam-clinic.local`;
+  const { firebaseAuth } = await import('./server/firebase.ts');
+  try {
+    const link = await firebaseAuth().generatePasswordResetLink(email);
+    await db.createNotification({
+      recipientPhone: user.phone,
+      recipientEmail: user.email,
+      type: 'reminder',
+      channel: 'sms',
+      content: `تم إنشاء رابط استعادة كلمة المرور لحسابك في عيادة د. حسام منصور. الرابط: ${link}`,
+    });
+  } catch (e) {
+    // Fall through with a generic message
+  }
   res.json({
     success: true,
-    message: 'تم إرسال رمز التحقق واستعادة كلمة المرور عبر رسالة نصية/واتساب إلى رقمك المسجل.',
+    message: 'تم إرسال رابط استعادة كلمة المرور إلى بريدك الإلكتروني المسجل.',
   });
-});
+}));
 
 // ----------------------------------------------------
 // 3. PATIENT PORTAL ROUTES
 // ----------------------------------------------------
 
 // Get Patient's Own Appointments
-app.get('/api/patient/appointments', authenticateToken, (req: AuthRequest, res) => {
-  try {
-    const user = req.user!;
-    // Match by patientId or phone
-    const appointments = db.getAppointments().filter(
-      a => a.patientId === user.id || a.patientPhone === user.phone
-    );
-
-    res.json({ success: true, data: appointments });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+app.get('/api/patient/appointments', authenticateToken, wrap(async (req: AuthRequest, res) => {
+  const user = req.user!;
+  const all = await db.getAppointments();
+  const appointments = all.filter(
+    a => a.patientId === user.id || a.patientPhone === user.phone
+  );
+  res.json({ success: true, data: appointments });
+}));
 
 // Patient Cancel Appointment
-app.post('/api/patient/appointments/:id/cancel', authenticateToken, (req: AuthRequest, res) => {
-  try {
-    const user = req.user!;
-    const apt = db.findAppointmentById(req.params.id);
+app.post('/api/patient/appointments/:id/cancel', authenticateToken, wrap(async (req: AuthRequest, res) => {
+  const user = req.user!;
+  const apt = await db.findAppointmentById(req.params.id);
 
-    if (!apt) {
-      return res.status(404).json({ success: false, message: 'الموعد غير موجود.' });
-    }
-
-    if (apt.patientId !== user.id && apt.patientPhone !== user.phone) {
-      return res.status(403).json({ success: false, message: 'غير مصرح لك بإلغاء هذا الحجز.' });
-    }
-
-    if (apt.status === 'completed' || apt.status === 'checked_in') {
-      return res.status(400).json({ success: false, message: 'لا يمكن إلغاء موعد تم حضوره أو إكماله بالفعل.' });
-    }
-
-    const { reason } = req.body;
-    const updated = db.updateAppointmentStatus(apt.id, 'cancelled', reason || 'إلغاء بواسطة المريض');
-
-    db.logAudit(
-      user.id,
-      user.name,
-      user.role,
-      'PATIENT_CANCEL_APPOINTMENT',
-      'Appointment',
-      apt.id,
-      `قام المريض بإلغاء الحجز رقم ${apt.bookingNumber}. السبب: ${reason || 'غير محدد'}`
-    );
-
-    res.json({ success: true, message: 'تم إلغاء الموعد بنجاح.', data: updated });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+  if (!apt) {
+    return res.status(404).json({ success: false, message: 'الموعد غير موجود.' });
   }
-});
+
+  if (apt.patientId !== user.id && apt.patientPhone !== user.phone) {
+    return res.status(403).json({ success: false, message: 'غير مصرح لك بإلغاء هذا الحجز.' });
+  }
+
+  if (apt.status === 'completed' || apt.status === 'checked_in') {
+    return res.status(400).json({ success: false, message: 'لا يمكن إلغاء موعد تم حضوره أو إكماله بالفعل.' });
+  }
+
+  const { reason } = req.body;
+  const updated = await db.updateAppointmentStatus(apt.id, 'cancelled', reason || 'إلغاء بواسطة المريض');
+
+  await db.logAudit(
+    user.id,
+    user.name,
+    user.role,
+    'PATIENT_CANCEL_APPOINTMENT',
+    'Appointment',
+    apt.id,
+    `قام المريض بإلغاء الحجز رقم ${apt.bookingNumber}. السبب: ${reason || 'غير محدد'}`
+  );
+
+  res.json({ success: true, message: 'تم إلغاء الموعد بنجاح.', data: updated });
+}));
 
 // Patient Request Reschedule
-app.post('/api/patient/appointments/:id/reschedule', authenticateToken, (req: AuthRequest, res) => {
-  try {
-    const user = req.user!;
-    const apt = db.findAppointmentById(req.params.id);
+app.post('/api/patient/appointments/:id/reschedule', authenticateToken, wrap(async (req: AuthRequest, res) => {
+  const user = req.user!;
+  const apt = await db.findAppointmentById(req.params.id);
 
-    if (!apt) {
-      return res.status(404).json({ success: false, message: 'الموعد غير موجود.' });
-    }
-
-    if (apt.patientId !== user.id && apt.patientPhone !== user.phone) {
-      return res.status(403).json({ success: false, message: 'غير مصرح لك بتعديل هذا الحجز.' });
-    }
-
-    const { newDate, newTime, newBranchId } = req.body;
-    if (!newDate || !newTime) {
-      return res.status(400).json({ success: false, message: 'يرجى تحديد التاريخ والوقت الجديدين.' });
-    }
-
-    const updated = db.rescheduleAppointment(apt.id, newDate, newTime, newBranchId);
-
-    db.logAudit(
-      user.id,
-      user.name,
-      user.role,
-      'PATIENT_RESCHEDULE_APPOINTMENT',
-      'Appointment',
-      apt.id,
-      `قام المريض بتعديل موعد الحجز رقم ${apt.bookingNumber} إلى ${newDate} الساعة ${newTime}`
-    );
-
-    res.json({ success: true, message: 'تم تعديل موعد الكشف بنجاح.', data: updated });
-  } catch (error: any) {
-    res.status(400).json({ success: false, message: error.message });
+  if (!apt) {
+    return res.status(404).json({ success: false, message: 'الموعد غير موجود.' });
   }
-});
+
+  if (apt.patientId !== user.id && apt.patientPhone !== user.phone) {
+    return res.status(403).json({ success: false, message: 'غير مصرح لك بتعديل هذا الحجز.' });
+  }
+
+  const { newDate, newTime, newBranchId } = req.body;
+  if (!newDate || !newTime) {
+    return res.status(400).json({ success: false, message: 'يرجى تحديد التاريخ والوقت الجديدين.' });
+  }
+
+  const updated = await db.rescheduleAppointment(apt.id, newDate, newTime, newBranchId);
+
+  await db.logAudit(
+    user.id,
+    user.name,
+    user.role,
+    'PATIENT_RESCHEDULE_APPOINTMENT',
+    'Appointment',
+    apt.id,
+    `قام المريض بتعديل موعد الحجز رقم ${apt.bookingNumber} إلى ${newDate} الساعة ${newTime}`
+  );
+
+  res.json({ success: true, message: 'تم تعديل موعد الكشف بنجاح.', data: updated });
+}));
 
 // Patient Update Profile
-app.put('/api/patient/profile', authenticateToken, (req: AuthRequest, res) => {
-  try {
-    const user = req.user!;
-    const { name, email, age, gender } = req.body;
+app.put('/api/patient/profile', authenticateToken, wrap(async (req: AuthRequest, res) => {
+  const user = req.user!;
+  const { name, email, age, gender } = req.body;
 
-    const updated = db.updateUser(user.id, {
-      name: name?.trim() || user.name,
-      email: email?.trim(),
-      age: age ? Number(age) : user.age,
-      gender: gender || user.gender,
-    });
+  const updated = await db.updateUser(user.id, {
+    name: name?.trim() || user.name,
+    email: email?.trim(),
+    age: age ? Number(age) : user.age,
+    gender: gender || user.gender,
+  });
 
-    res.json({ success: true, message: 'تم تحديث البيانات الشخصية بنجاح.', data: updated });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+  res.json({ success: true, message: 'تم تحديث البيانات الشخصية بنجاح.', data: updated });
+}));
 
 // ----------------------------------------------------
 // 4. ADMIN & CLINIC MANAGEMENT ROUTES
 // ----------------------------------------------------
 
-// Admin Dashboard Stats
-app.get('/api/admin/dashboard-stats', authenticateToken, requireRoles('super_admin', 'receptionist', 'content_editor'), (req, res) => {
-  try {
-    const stats = db.getDashboardStats();
-    res.json({ success: true, data: stats });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+app.get('/api/admin/dashboard-stats', authenticateToken, requireRoles('super_admin', 'receptionist', 'content_editor'), wrap(async (req, res) => {
+  const stats = await db.getDashboardStats();
+  res.json({ success: true, data: stats });
+}));
+
+app.get('/api/admin/appointments', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req, res) => {
+  const { branchId, serviceId, status, dateFrom, dateTo, search } = req.query as any;
+  const appointments = await db.getAppointments({ branchId, serviceId, status, dateFrom, dateTo, search });
+  res.json({ success: true, data: appointments });
+}));
+
+app.post('/api/admin/appointments', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const {
+    patientName,
+    patientPhone,
+    patientEmail,
+    patientAge,
+    patientGender,
+    serviceId,
+    branchId,
+    appointmentDate,
+    appointmentTime,
+    confirmationMethod,
+    notes,
+    clinicInternalNotes,
+  } = req.body;
+
+  if (!patientName || !patientPhone || !serviceId || !branchId || !appointmentDate || !appointmentTime) {
+    return res.status(400).json({ success: false, message: 'يرجى إكمال البيانات الأساسية للحجز.' });
   }
-});
 
-// Admin Appointment List (Search & Filter)
-app.get('/api/admin/appointments', authenticateToken, requireRoles('super_admin', 'receptionist'), (req, res) => {
-  try {
-    const { branchId, serviceId, status, dateFrom, dateTo, search } = req.query as any;
-    const appointments = db.getAppointments({ branchId, serviceId, status, dateFrom, dateTo, search });
-    res.json({ success: true, data: appointments });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+  const appointment = await db.createAppointment({
+    patientName,
+    patientPhone,
+    patientEmail,
+    patientAge,
+    patientGender,
+    serviceId,
+    branchId,
+    appointmentDate,
+    appointmentTime,
+    confirmationMethod,
+    notes,
+  });
+
+  if (clinicInternalNotes) {
+    await db.updateAppointmentStatus(appointment.id, appointment.status, undefined, clinicInternalNotes);
   }
-});
 
-// Admin Create Manual Appointment (Receptionist Walk-in / Phone Call)
-app.post('/api/admin/appointments', authenticateToken, requireRoles('super_admin', 'receptionist'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const {
-      patientName,
-      patientPhone,
-      patientEmail,
-      patientAge,
-      patientGender,
-      serviceId,
-      branchId,
-      appointmentDate,
-      appointmentTime,
-      confirmationMethod,
-      notes,
-      clinicInternalNotes,
-    } = req.body;
+  await db.logAudit(
+    adminUser.id,
+    adminUser.name,
+    adminUser.role,
+    'ADMIN_CREATE_APPOINTMENT',
+    'Appointment',
+    appointment.id,
+    `تسجيل حجز يدوي بواسطة موظف الاستقبال: ${appointment.patientName} (${appointment.bookingNumber})`
+  );
 
-    if (!patientName || !patientPhone || !serviceId || !branchId || !appointmentDate || !appointmentTime) {
-      return res.status(400).json({ success: false, message: 'يرجى إكمال البيانات الأساسية للحجز.' });
-    }
+  res.status(201).json({ success: true, message: 'تم تسجيل الحجز بنجاح.', data: appointment });
+}));
 
-    const appointment = db.createAppointment({
-      patientName,
-      patientPhone,
-      patientEmail,
-      patientAge,
-      patientGender,
-      serviceId,
-      branchId,
-      appointmentDate,
-      appointmentTime,
-      confirmationMethod,
-      notes,
+app.patch('/api/admin/appointments/:id/status', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const { status, reason, clinicInternalNotes } = req.body;
+
+  const apt = await db.findAppointmentById(req.params.id);
+  if (!apt) {
+    return res.status(404).json({ success: false, message: 'الموعد غير موجود.' });
+  }
+
+  const updated = await db.updateAppointmentStatus(apt.id, status, reason, clinicInternalNotes);
+
+  await db.logAudit(
+    adminUser.id,
+    adminUser.name,
+    adminUser.role,
+    'UPDATE_APPOINTMENT_STATUS',
+    'Appointment',
+    apt.id,
+    `تعديل حالة الحجز ${apt.bookingNumber} من ${apt.status} إلى ${status}. ملاحظات: ${clinicInternalNotes || 'لا توجد'}`
+  );
+
+  res.json({ success: true, message: 'تم تحديث حالة الحجز بنجاح.', data: updated });
+}));
+
+app.put('/api/admin/appointments/:id/reschedule', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const { newDate, newTime, newBranchId } = req.body;
+
+  const updated = await db.rescheduleAppointment(req.params.id, newDate, newTime, newBranchId);
+
+  await db.logAudit(
+    adminUser.id,
+    adminUser.name,
+    adminUser.role,
+    'ADMIN_RESCHEDULE_APPOINTMENT',
+    'Appointment',
+    req.params.id,
+    `تعديل موعد كشف بواسطة الإدارة إلى تاريخ ${newDate} الساعة ${newTime}`
+  );
+
+  res.json({ success: true, message: 'تم تعديل موعد الكشف بنجاح.', data: updated });
+}));
+
+app.get('/api/admin/calendar', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req, res) => {
+  const { branchId, month } = req.query as { branchId?: string; month?: string };
+  const all = await db.getAppointments({ branchId });
+  const filtered = month ? all.filter(a => a.appointmentDate.startsWith(month)) : all;
+  res.json({ success: true, data: filtered });
+}));
+
+app.get('/api/admin/patients', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req, res) => {
+  const { search } = req.query as { search?: string };
+  const [appointments, registeredUsers] = await Promise.all([
+    db.getAppointments(),
+    db.getUsers(),
+  ]);
+  const patients = registeredUsers.filter(u => u.role === 'patient');
+
+  const patientMap = new Map<string, any>();
+
+  patients.forEach(u => {
+    patientMap.set(u.phone, {
+      id: u.id,
+      name: u.name,
+      phone: u.phone,
+      email: u.email,
+      age: u.age,
+      gender: u.gender,
+      isRegistered: true,
+      totalBookings: 0,
+      lastVisitDate: null,
     });
+  });
 
-    if (clinicInternalNotes) {
-      db.updateAppointmentStatus(appointment.id, appointment.status, undefined, clinicInternalNotes);
+  appointments.forEach(apt => {
+    const existing = patientMap.get(apt.patientPhone) || {
+      id: apt.patientId || `guest_${apt.patientPhone}`,
+      name: apt.patientName,
+      phone: apt.patientPhone,
+      email: apt.patientEmail,
+      age: apt.patientAge,
+      gender: apt.patientGender,
+      isRegistered: !!apt.patientId,
+      totalBookings: 0,
+      lastVisitDate: null,
+    };
+    existing.totalBookings += 1;
+    if (!existing.lastVisitDate || apt.appointmentDate > existing.lastVisitDate) {
+      existing.lastVisitDate = apt.appointmentDate;
     }
+    patientMap.set(apt.patientPhone, existing);
+  });
 
-    db.logAudit(
-      adminUser.id,
-      adminUser.name,
-      adminUser.role,
-      'ADMIN_CREATE_APPOINTMENT',
-      'Appointment',
-      appointment.id,
-      `تسجيل حجز يدوي بواسطة موظف الاستقبال: ${appointment.patientName} (${appointment.bookingNumber})`
-    );
-
-    res.status(201).json({ success: true, message: 'تم تسجيل الحجز بنجاح.', data: appointment });
-  } catch (error: any) {
-    res.status(400).json({ success: false, message: error.message });
+  let list = Array.from(patientMap.values());
+  if (search) {
+    const s = search.toLowerCase().trim();
+    list = list.filter(p => p.name.toLowerCase().includes(s) || p.phone.includes(s));
   }
-});
 
-// Admin Update Status (Confirm, Check-in, Complete, Cancel, No-show)
-app.patch('/api/admin/appointments/:id/status', authenticateToken, requireRoles('super_admin', 'receptionist'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const { status, reason, clinicInternalNotes } = req.body;
+  res.json({ success: true, data: list });
+}));
 
-    const apt = db.findAppointmentById(req.params.id);
-    if (!apt) {
-      return res.status(404).json({ success: false, message: 'الموعد غير موجود.' });
-    }
-
-    const updated = db.updateAppointmentStatus(apt.id, status, reason, clinicInternalNotes);
-
-    db.logAudit(
-      adminUser.id,
-      adminUser.name,
-      adminUser.role,
-      'UPDATE_APPOINTMENT_STATUS',
-      'Appointment',
-      apt.id,
-      `تعديل حالة الحجز ${apt.bookingNumber} من ${apt.status} إلى ${status}. ملاحظات: ${clinicInternalNotes || 'لا توجد'}`
-    );
-
-    res.json({ success: true, message: 'تم تحديث حالة الحجز بنجاح.', data: updated });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// Admin Reschedule Appointment
-app.put('/api/admin/appointments/:id/reschedule', authenticateToken, requireRoles('super_admin', 'receptionist'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const { newDate, newTime, newBranchId } = req.body;
-
-    const updated = db.rescheduleAppointment(req.params.id, newDate, newTime, newBranchId);
-
-    db.logAudit(
-      adminUser.id,
-      adminUser.name,
-      adminUser.role,
-      'ADMIN_RESCHEDULE_APPOINTMENT',
-      'Appointment',
-      req.params.id,
-      `تعديل موعد كشف بواسطة الإدارة إلى تاريخ ${newDate} الساعة ${newTime}`
-    );
-
-    res.json({ success: true, message: 'تم تعديل موعد الكشف بنجاح.', data: updated });
-  } catch (error: any) {
-    res.status(400).json({ success: false, message: error.message });
-  }
-});
-
-// Admin Calendar View Data (Grouped by Date)
-app.get('/api/admin/calendar', authenticateToken, requireRoles('super_admin', 'receptionist'), (req, res) => {
-  try {
-    const { branchId, month } = req.query as { branchId?: string; month?: string };
-    const all = db.getAppointments({ branchId });
-
-    // Filter by month (YYYY-MM) if provided
-    const filtered = month ? all.filter(a => a.appointmentDate.startsWith(month)) : all;
-
-    res.json({ success: true, data: filtered });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// Admin Patients Directory
-app.get('/api/admin/patients', authenticateToken, requireRoles('super_admin', 'receptionist'), (req, res) => {
-  try {
-    const { search } = req.query as { search?: string };
-    const appointments = db.getAppointments();
-    const registeredUsers = db.getUsers().filter(u => u.role === 'patient');
-
-    // Aggregate unique patient profiles from appointments + user records
-    const patientMap = new Map<string, any>();
-
-    registeredUsers.forEach(u => {
-      patientMap.set(u.phone, {
-        id: u.id,
-        name: u.name,
-        phone: u.phone,
-        email: u.email,
-        age: u.age,
-        gender: u.gender,
-        isRegistered: true,
-        totalBookings: 0,
-        lastVisitDate: null,
-      });
-    });
-
-    appointments.forEach(apt => {
-      const existing = patientMap.get(apt.patientPhone) || {
-        id: apt.patientId || `guest_${apt.patientPhone}`,
-        name: apt.patientName,
-        phone: apt.patientPhone,
-        email: apt.patientEmail,
-        age: apt.patientAge,
-        gender: apt.patientGender,
-        isRegistered: !!apt.patientId,
-        totalBookings: 0,
-        lastVisitDate: null,
-      };
-
-      existing.totalBookings += 1;
-      if (!existing.lastVisitDate || apt.appointmentDate > existing.lastVisitDate) {
-        existing.lastVisitDate = apt.appointmentDate;
-      }
-      patientMap.set(apt.patientPhone, existing);
-    });
-
-    let list = Array.from(patientMap.values());
-
-    if (search) {
-      const s = search.toLowerCase().trim();
-      list = list.filter(p => p.name.toLowerCase().includes(s) || p.phone.includes(s));
-    }
-
-    res.json({ success: true, data: list });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// Admin Patient Detailed History
-app.get('/api/admin/patients/:phone/history', authenticateToken, requireRoles('super_admin', 'receptionist'), (req, res) => {
-  try {
-    const phone = req.params.phone;
-    const history = db.getAppointments().filter(a => a.patientPhone === phone);
-    res.json({ success: true, data: history });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+app.get('/api/admin/patients/:phone/history', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req, res) => {
+  const phone = req.params.phone;
+  const all = await db.getAppointments();
+  const history = all.filter(a => a.patientPhone === phone);
+  res.json({ success: true, data: history });
+}));
 
 // ----------------------------------------------------
 // 5. WORKING HOURS & SCHEDULE MANAGEMENT
 // ----------------------------------------------------
 
-app.get('/api/admin/working-hours', authenticateToken, requireRoles('super_admin', 'receptionist'), (req, res) => {
+app.get('/api/admin/working-hours', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req, res) => {
   const { branchId } = req.query as { branchId?: string };
-  res.json({ success: true, data: db.getWorkingHours(branchId) });
-});
+  res.json({ success: true, data: await db.getWorkingHours(branchId) });
+}));
 
-app.put('/api/admin/working-hours/:id', authenticateToken, requireRoles('super_admin'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const updated = db.updateWorkingHour(req.params.id, req.body);
-    if (!updated) return res.status(404).json({ success: false, message: 'قاعدة المواعيد غير موجودة.' });
+app.put('/api/admin/working-hours/:id', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const updated = await db.updateWorkingHour(req.params.id, req.body);
+  if (!updated) return res.status(404).json({ success: false, message: 'قاعدة المواعيد غير موجودة.' });
 
-    db.logAudit(
-      adminUser.id,
-      adminUser.name,
-      adminUser.role,
-      'UPDATE_WORKING_HOURS',
-      'WorkingHourRule',
-      req.params.id,
-      `تحديث مواعيد وساعات العمل للفرع.`
-    );
+  await db.logAudit(
+    adminUser.id,
+    adminUser.name,
+    adminUser.role,
+    'UPDATE_WORKING_HOURS',
+    'WorkingHourRule',
+    req.params.id,
+    `تحديث مواعيد وساعات العمل للفرع.`
+  );
 
-    res.json({ success: true, message: 'تم حفظ مواعيد العمل بنجاح.', data: updated });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+  res.json({ success: true, message: 'تم حفظ مواعيد العمل بنجاح.', data: updated });
+}));
 
-app.get('/api/admin/exceptions', authenticateToken, requireRoles('super_admin', 'receptionist'), (req, res) => {
+app.get('/api/admin/exceptions', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req, res) => {
   const { branchId } = req.query as { branchId?: string };
-  res.json({ success: true, data: db.getExceptions(branchId) });
-});
+  res.json({ success: true, data: await db.getExceptions(branchId) });
+}));
 
-app.post('/api/admin/exceptions', authenticateToken, requireRoles('super_admin'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const created = db.createException(req.body);
+app.post('/api/admin/exceptions', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const created = await db.createException(req.body);
 
-    db.logAudit(
-      adminUser.id,
-      adminUser.name,
-      adminUser.role,
-      'CREATE_SCHEDULE_EXCEPTION',
-      'ScheduleException',
-      created.id,
-      `إضافة إجازة أو موعد استثنائي بتاريخ ${created.date}. السبب: ${created.reason}`
-    );
+  await db.logAudit(
+    adminUser.id,
+    adminUser.name,
+    adminUser.role,
+    'CREATE_SCHEDULE_EXCEPTION',
+    'ScheduleException',
+    created.id,
+    `إضافة إجازة أو موعد استثنائي بتاريخ ${created.date}. السبب: ${created.reason}`
+  );
 
-    res.status(201).json({ success: true, message: 'تمت إضافة الاستثناء بنجاح.', data: created });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+  res.status(201).json({ success: true, message: 'تمت إضافة الاستثناء بنجاح.', data: created });
+}));
 
-app.delete('/api/admin/exceptions/:id', authenticateToken, requireRoles('super_admin'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    db.deleteException(req.params.id);
+app.delete('/api/admin/exceptions/:id', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  await db.deleteException(req.params.id);
 
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'DELETE_SCHEDULE_EXCEPTION', 'ScheduleException', req.params.id, 'حذف موعد استثنائي/إجازة.');
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'DELETE_SCHEDULE_EXCEPTION', 'ScheduleException', req.params.id, 'حذف موعد استثنائي/إجازة.');
 
-    res.json({ success: true, message: 'تم حذف الاستثناء بنجاح.' });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+  res.json({ success: true, message: 'تم حذف الاستثناء بنجاح.' });
+}));
 
 // ----------------------------------------------------
 // 6. BRANCH & SERVICE MANAGEMENT
 // ----------------------------------------------------
 
-// Branches CRUD
-app.get('/api/admin/branches', authenticateToken, requireRoles('super_admin', 'receptionist', 'content_editor'), (req, res) => {
-  res.json({ success: true, data: db.getBranches(true) });
-});
+app.get('/api/admin/branches', authenticateToken, requireRoles('super_admin', 'receptionist', 'content_editor'), wrap(async (req, res) => {
+  res.json({ success: true, data: await db.getBranches(true) });
+}));
 
-app.post('/api/admin/branches', authenticateToken, requireRoles('super_admin'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const branch = db.createBranch(req.body);
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'CREATE_BRANCH', 'Branch', branch.id, `إضافة فرع جديد: ${branch.name}`);
-    res.status(201).json({ success: true, message: 'تمت إضافة الفرع بنجاح.', data: branch });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+app.post('/api/admin/branches', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const branch = await db.createBranch(req.body);
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'CREATE_BRANCH', 'Branch', branch.id, `إضافة فرع جديد: ${branch.name}`);
+  res.status(201).json({ success: true, message: 'تمت إضافة الفرع بنجاح.', data: branch });
+}));
 
-app.put('/api/admin/branches/:id', authenticateToken, requireRoles('super_admin'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const branch = db.updateBranch(req.params.id, req.body);
-    if (!branch) return res.status(404).json({ success: false, message: 'الفرع غير موجود.' });
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'UPDATE_BRANCH', 'Branch', branch.id, `تحديث بيانات الفرع: ${branch.name}`);
-    res.json({ success: true, message: 'تم تحديث بيانات الفرع بنجاح.', data: branch });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+app.put('/api/admin/branches/:id', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const branch = await db.updateBranch(req.params.id, req.body);
+  if (!branch) return res.status(404).json({ success: false, message: 'الفرع غير موجود.' });
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'UPDATE_BRANCH', 'Branch', branch.id, `تحديث بيانات الفرع: ${branch.name}`);
+  res.json({ success: true, message: 'تم تحديث بيانات الفرع بنجاح.', data: branch });
+}));
 
-app.delete('/api/admin/branches/:id', authenticateToken, requireRoles('super_admin'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    db.deleteBranch(req.params.id);
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'DELETE_BRANCH', 'Branch', req.params.id, `حذف فرع من النظام.`);
-    res.json({ success: true, message: 'تم حذف الفرع بنجاح.' });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+app.delete('/api/admin/branches/:id', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  await db.deleteBranch(req.params.id);
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'DELETE_BRANCH', 'Branch', req.params.id, `حذف فرع من النظام.`);
+  res.json({ success: true, message: 'تم حذف الفرع بنجاح.' });
+}));
 
-// Services CRUD
-app.get('/api/admin/services', authenticateToken, requireRoles('super_admin', 'receptionist', 'content_editor'), (req, res) => {
-  res.json({ success: true, data: db.getServices(true) });
-});
+app.get('/api/admin/services', authenticateToken, requireRoles('super_admin', 'receptionist', 'content_editor'), wrap(async (req, res) => {
+  res.json({ success: true, data: await db.getServices(true) });
+}));
 
-app.post('/api/admin/services', authenticateToken, requireRoles('super_admin', 'content_editor'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const service = db.createService(req.body);
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'CREATE_SERVICE', 'MedicalService', service.id, `إضافة خدمة وتخصص طبي: ${service.name}`);
-    res.status(201).json({ success: true, message: 'تمت إضافة التخصص بنجاح.', data: service });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+app.post('/api/admin/services', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const service = await db.createService(req.body);
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'CREATE_SERVICE', 'MedicalService', service.id, `إضافة خدمة وتخصص طبي: ${service.name}`);
+  res.status(201).json({ success: true, message: 'تمت إضافة التخصص بنجاح.', data: service });
+}));
 
-app.put('/api/admin/services/:id', authenticateToken, requireRoles('super_admin', 'content_editor'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const service = db.updateService(req.params.id, req.body);
-    if (!service) return res.status(404).json({ success: false, message: 'الخدمة غير موجودة.' });
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'UPDATE_SERVICE', 'MedicalService', service.id, `تعديل بيانات الخدمة الطبية: ${service.name}`);
-    res.json({ success: true, message: 'تم تحديث التخصص بنجاح.', data: service });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+app.put('/api/admin/services/:id', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const service = await db.updateService(req.params.id, req.body);
+  if (!service) return res.status(404).json({ success: false, message: 'الخدمة غير موجودة.' });
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'UPDATE_SERVICE', 'MedicalService', service.id, `تعديل بيانات الخدمة الطبية: ${service.name}`);
+  res.json({ success: true, message: 'تم تحديث التخصص بنجاح.', data: service });
+}));
 
-app.delete('/api/admin/services/:id', authenticateToken, requireRoles('super_admin'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    db.deleteService(req.params.id);
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'DELETE_SERVICE', 'MedicalService', req.params.id, `حذف تخصص طبي.`);
-    res.json({ success: true, message: 'تم حذف التخصص بنجاح.' });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+app.delete('/api/admin/services/:id', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  await db.deleteService(req.params.id);
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'DELETE_SERVICE', 'MedicalService', req.params.id, `حذف تخصص طبي.`);
+  res.json({ success: true, message: 'تم حذف التخصص بنجاح.' });
+}));
 
 // ----------------------------------------------------
 // 7. CONTENT MANAGEMENT (CMS)
 // ----------------------------------------------------
 
-// Doctor Profile
-app.get('/api/admin/content/doctor-profile', authenticateToken, requireRoles('super_admin', 'content_editor'), (req, res) => {
-  res.json({ success: true, data: db.getDoctorProfile() });
-});
+app.get('/api/admin/content/doctor-profile', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req, res) => {
+  res.json({ success: true, data: await db.getDoctorProfile() });
+}));
 
-app.put('/api/admin/content/doctor-profile', authenticateToken, requireRoles('super_admin', 'content_editor'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const profile = db.updateDoctorProfile(req.body, adminUser.id);
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'UPDATE_DOCTOR_PROFILE', 'DoctorProfile', 'root', 'تحديث السيرة الذاتية ومعلومات الطبيب واعتمادها.');
-    res.json({ success: true, message: 'تم تحديث واعتماد الملف التعريفي للطبيب بنجاح.', data: profile });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+app.put('/api/admin/content/doctor-profile', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const profile = await db.updateDoctorProfile(req.body, adminUser.id);
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'UPDATE_DOCTOR_PROFILE', 'DoctorProfile', 'root', 'تحديث السيرة الذاتية ومعلومات الطبيب واعتمادها.');
+  res.json({ success: true, message: 'تم تحديث واعتماد الملف التعريفي للطبيب بنجاح.', data: profile });
+}));
 
-// Reviews Management
-app.get('/api/admin/content/reviews', authenticateToken, requireRoles('super_admin', 'content_editor'), (req, res) => {
-  res.json({ success: true, data: db.getReviews(true) });
-});
+app.get('/api/admin/content/reviews', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req, res) => {
+  res.json({ success: true, data: await db.getReviews(true) });
+}));
 
-app.patch('/api/admin/content/reviews/:id/approval', authenticateToken, requireRoles('super_admin', 'content_editor'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const { isApproved, isFeatured } = req.body;
-    const review = db.updateReviewApproval(req.params.id, isApproved, isFeatured);
-    if (!review) return res.status(404).json({ success: false, message: 'التقييم غير موجود.' });
+app.patch('/api/admin/content/reviews/:id/approval', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const { isApproved, isFeatured } = req.body;
+  const review = await db.updateReviewApproval(req.params.id, isApproved, isFeatured);
+  if (!review) return res.status(404).json({ success: false, message: 'التقييم غير موجود.' });
 
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'APPROVE_REVIEW', 'Review', review.id, `تغيير حالة اعتماد التقييم إلى: ${isApproved ? 'معتمد ومنشور' : 'محجوب'}`);
-    res.json({ success: true, message: 'تم تحديث حالة اعتماد التقييم بنجاح.', data: review });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'APPROVE_REVIEW', 'Review', review.id, `تغيير حالة اعتماد التقييم إلى: ${isApproved ? 'معتمد ومنشور' : 'محجوب'}`);
+  res.json({ success: true, message: 'تم تحديث حالة اعتماد التقييم بنجاح.', data: review });
+}));
 
-app.delete('/api/admin/content/reviews/:id', authenticateToken, requireRoles('super_admin', 'content_editor'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    db.deleteReview(req.params.id);
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'DELETE_REVIEW', 'Review', req.params.id, `حذف تقييم مريض.`);
-    res.json({ success: true, message: 'تم حذف التقييم بنجاح.' });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+app.delete('/api/admin/content/reviews/:id', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  await db.deleteReview(req.params.id);
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'DELETE_REVIEW', 'Review', req.params.id, `حذف تقييم مريض.`);
+  res.json({ success: true, message: 'تم حذف التقييم بنجاح.' });
+}));
 
-// FAQs Management
-app.get('/api/admin/content/faqs', authenticateToken, requireRoles('super_admin', 'content_editor'), (req, res) => {
-  res.json({ success: true, data: db.getFaqs(true) });
-});
+app.get('/api/admin/content/faqs', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req, res) => {
+  res.json({ success: true, data: await db.getFaqs(true) });
+}));
 
-app.post('/api/admin/content/faqs', authenticateToken, requireRoles('super_admin', 'content_editor'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const faq = db.createFaq(req.body);
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'CREATE_FAQ', 'FAQItem', faq.id, `إضافة سؤال شائع جديد.`);
-    res.status(201).json({ success: true, message: 'تمت إضافة السؤال بنجاح.', data: faq });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+app.post('/api/admin/content/faqs', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const faq = await db.createFaq(req.body);
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'CREATE_FAQ', 'FAQItem', faq.id, `إضافة سؤال شائع جديد.`);
+  res.status(201).json({ success: true, message: 'تمت إضافة السؤال بنجاح.', data: faq });
+}));
 
-app.put('/api/admin/content/faqs/:id', authenticateToken, requireRoles('super_admin', 'content_editor'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const faq = db.updateFaq(req.params.id, req.body);
-    if (!faq) return res.status(404).json({ success: false, message: 'السؤال غير موجود.' });
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'UPDATE_FAQ', 'FAQItem', faq.id, `تحديث السؤال الشائع.`);
-    res.json({ success: true, message: 'تم تحديث السؤال بنجاح.', data: faq });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+app.put('/api/admin/content/faqs/:id', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const faq = await db.updateFaq(req.params.id, req.body);
+  if (!faq) return res.status(404).json({ success: false, message: 'السؤال غير موجود.' });
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'UPDATE_FAQ', 'FAQItem', faq.id, `تحديث السؤال الشائع.`);
+  res.json({ success: true, message: 'تم تحديث السؤال بنجاح.', data: faq });
+}));
 
-app.delete('/api/admin/content/faqs/:id', authenticateToken, requireRoles('super_admin', 'content_editor'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    db.deleteFaq(req.params.id);
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'DELETE_FAQ', 'FAQItem', req.params.id, `حذف سؤال شائع.`);
-    res.json({ success: true, message: 'تم حذف السؤال بنجاح.' });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+app.delete('/api/admin/content/faqs/:id', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  await db.deleteFaq(req.params.id);
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'DELETE_FAQ', 'FAQItem', req.params.id, `حذف سؤال شائع.`);
+  res.json({ success: true, message: 'تم حذف السؤال بنجاح.' });
+}));
 
-// Announcements
-app.get('/api/admin/content/announcements', authenticateToken, requireRoles('super_admin', 'content_editor'), (req, res) => {
-  res.json({ success: true, data: db.getAnnouncements(false) });
-});
+app.get('/api/admin/content/announcements', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req, res) => {
+  res.json({ success: true, data: await db.getAnnouncements(false) });
+}));
 
-app.put('/api/admin/content/announcements/:id', authenticateToken, requireRoles('super_admin', 'content_editor'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const anc = db.updateAnnouncement(req.params.id, req.body);
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'UPDATE_ANNOUNCEMENT', 'Announcement', req.params.id, `تحديث شريط الإعلانات والتنبيهات.`);
-    res.json({ success: true, message: 'تم حفظ الإعلان بنجاح.', data: anc });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+app.put('/api/admin/content/announcements/:id', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const anc = await db.updateAnnouncement(req.params.id, req.body);
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'UPDATE_ANNOUNCEMENT', 'Announcement', req.params.id, `تحديث شريط الإعلانات والتنبيهات.`);
+  res.json({ success: true, message: 'تم حفظ الإعلان بنجاح.', data: anc });
+}));
 
 // ----------------------------------------------------
 // 8. SYSTEM, AUDIT LOGS & NOTIFICATIONS
 // ----------------------------------------------------
 
-app.get('/api/admin/audit-logs', authenticateToken, requireRoles('super_admin'), (req, res) => {
-  res.json({ success: true, data: db.getAuditLogs(100) });
-});
+app.get('/api/admin/audit-logs', authenticateToken, requireRoles('super_admin'), wrap(async (req, res) => {
+  res.json({ success: true, data: await db.getAuditLogs(100) });
+}));
 
-app.get('/api/admin/notifications', authenticateToken, requireRoles('super_admin', 'receptionist'), (req, res) => {
-  res.json({ success: true, data: db.getNotifications(100) });
-});
+app.get('/api/admin/notifications', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req, res) => {
+  res.json({ success: true, data: await db.getNotifications(100) });
+}));
 
-app.get('/api/admin/users', authenticateToken, requireRoles('super_admin'), (req, res) => {
-  res.json({ success: true, data: db.getUsers() });
-});
+app.get('/api/admin/users', authenticateToken, requireRoles('super_admin'), wrap(async (req, res) => {
+  res.json({ success: true, data: await db.getUsers() });
+}));
 
-// Create Staff User
-app.post('/api/admin/users', authenticateToken, requireRoles('super_admin'), (req: AuthRequest, res) => {
-  try {
-    const adminUser = req.user!;
-    const { name, phone, email, password, role } = req.body;
+app.post('/api/admin/users', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const { name, phone, email, password, role } = req.body;
 
-    if (!name || !phone || !password || !role) {
-      return res.status(400).json({ success: false, message: 'يرجى ملء جميع الحقول المطلوبة للموظف.' });
-    }
-
-    const newUser = db.createUser({
-      name,
-      phone,
-      email,
-      password,
-      role,
-    });
-
-    db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'CREATE_STAFF_USER', 'User', newUser.id, `إضافة مستخدم طاقم جديد: ${newUser.name} بصلاحية ${newUser.role}`);
-    res.status(201).json({ success: true, message: 'تم إنشاء حساب الموظف بنجاح.', data: newUser });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+  if (!name || !phone || !password || !role) {
+    return res.status(400).json({ success: false, message: 'يرجى ملء جميع الحقول المطلوبة للموظف.' });
   }
-});
+
+  const authEmail = (email && email.trim()) || `${phone.trim()}@hossam-clinic.local`;
+  const { firebaseAuth } = await import('./server/firebase.ts');
+
+  let uid: string;
+  try {
+    const userRecord = await firebaseAuth().createUser({
+      email: authEmail,
+      password,
+      displayName: name,
+    });
+    await firebaseAuth().setCustomUserClaims(userRecord.uid, { role });
+    uid = userRecord.uid;
+  } catch (e: any) {
+    return res.status(409).json({ success: false, message: e?.message || 'فشل إنشاء المستخدم في Firebase Auth.' });
+  }
+
+  // Store the Firestore profile doc id == Firebase Auth uid so that
+  // authenticateToken (findUserById(uid)) can resolve the user on login.
+  const newUser = await db.createUserWithId(uid, {
+    name,
+    phone,
+    email,
+    password,
+    role,
+  });
+
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'CREATE_STAFF_USER', 'User', uid, `إضافة مستخدم طاقم جديد: ${newUser.name} بصلاحية ${newUser.role}`);
+  res.status(201).json({ success: true, message: 'تم إنشاء حساب الموظف بنجاح.', data: { ...newUser, id: uid } });
+}));
 
 // 404 JSON response for any unmatched API route to prevent HTML fallback
 app.all('/api/*', (req, res) => {
@@ -1026,4 +900,7 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
+});

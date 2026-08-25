@@ -1,6 +1,9 @@
-import fs from 'fs';
-import path from 'path';
-import bcrypt from 'bcryptjs';
+import { db as firestore, firebaseAuth } from './firebase.ts';
+import {
+  FieldValue,
+  Timestamp,
+  type Query,
+} from 'firebase-admin/firestore';
 import {
   User,
   Branch,
@@ -18,484 +21,66 @@ import {
   DashboardStats,
 } from '../src/types/index.ts';
 
-interface DatabaseSchema {
-  users: (User & { passwordHash: string })[];
-  branches: Branch[];
-  services: MedicalService[];
-  appointments: Appointment[];
-  workingHours: WorkingHourRule[];
-  exceptions: ScheduleException[];
-  doctorProfile: DoctorProfile;
-  reviews: Review[];
-  faqs: FAQItem[];
-  announcements: Announcement[];
-  auditLogs: AuditLog[];
-  notifications: NotificationRecord[];
+const timestamp = () => FieldValue.serverTimestamp();
+const writeAny = FieldValue as any;
+
+interface UserWithPassword extends User {
+  passwordHash: string;
 }
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const DB_FILE = path.join(DATA_DIR, 'clinic_db.json');
+// Collection names (kept singular for clarity)
+const COL = {
+  users: 'users',
+  branches: 'branches',
+  services: 'services',
+  appointments: 'appointments',
+  workingHours: 'workingHours',
+  exceptions: 'scheduleExceptions',
+  doctorProfile: 'doctorProfile',
+  reviews: 'reviews',
+  faqs: 'faqs',
+  announcements: 'announcements',
+  auditLogs: 'auditLogs',
+  notifications: 'notifications',
+};
 
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+const DOCTOR_PROFILE_DOC_ID = 'main';
+
+function toIso(value: any): string {
+  if (!value) return new Date().toISOString();
+  if (value instanceof Timestamp) {
+    return value.toDate().toISOString();
   }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === 'string') return value;
+  return new Date().toISOString();
 }
 
-function getInitialData(): DatabaseSchema {
-  const salt = bcrypt.genSaltSync(10);
-
-  const initialUsers: (User & { passwordHash: string })[] = [
-    {
-      id: 'usr_super_admin',
-      name: 'د. حسام منصور أبو كحلة (الإدارة العليا)',
-      phone: '01100171817',
-      email: 'admin@hossammansour.clinic',
-      passwordHash: bcrypt.hashSync('AdminPassword2026!', salt),
-      role: 'super_admin',
-      gender: 'male',
-      age: 48,
-      createdAt: '2026-01-01T08:00:00.000Z',
-    },
-    {
-      id: 'usr_receptionist',
-      name: 'أحمد محمود (الاستقبال والحجوزات)',
-      phone: '01113244403',
-      email: 'reception@hossammansour.clinic',
-      passwordHash: bcrypt.hashSync('Reception2026!', salt),
-      role: 'receptionist',
-      gender: 'male',
-      age: 29,
-      createdAt: '2026-01-01T08:00:00.000Z',
-    },
-    {
-      id: 'usr_content_editor',
-      name: 'سارة إبراهيم (إدارة المحتوى الطبي)',
-      phone: '01000111819',
-      email: 'editor@hossammansour.clinic',
-      passwordHash: bcrypt.hashSync('Editor2026!', salt),
-      role: 'content_editor',
-      gender: 'female',
-      age: 27,
-      createdAt: '2026-01-01T08:00:00.000Z',
-    },
-    {
-      id: 'usr_demo_patient',
-      name: 'محمد عبد الرحمن (مريض تجريبي)',
-      phone: '01012345678',
-      email: 'patient@demo.com',
-      passwordHash: bcrypt.hashSync('Patient2026!', salt),
-      role: 'patient',
-      gender: 'male',
-      age: 38,
-      createdAt: '2026-01-10T10:00:00.000Z',
-    },
-  ];
-
-  const initialBranches: Branch[] = [
-    {
-      id: 'br_tanta',
-      name: 'فرع طنطا الرئيسي',
-      city: 'طنطا',
-      address: 'شارع البحر الرئيسي تقاطع طه الحكيم - أعلى مطعم حضرموت - طنطا',
-      mapUrl: 'https://maps.app.goo.gl/qFXEkfuCqfQcto',
-      phone: '01100171817',
-      secondaryPhone: '01113244403',
-      workingHoursDescription: 'السبت، الإثنين، الأربعاء من 4:00 عصراً إلى 10:00 مساءً',
-      isActive: true,
-      order: 1,
-    },
-    {
-      id: 'br_zefta',
-      name: 'فرع زفتى',
-      city: 'زفتى',
-      address: 'أمام مستشفى زفتى العام - زفتى - محافظة الغربية',
-      mapUrl: 'https://maps.app.goo.gl/qFXEkfuCqfQcto',
-      phone: '01000111819',
-      secondaryPhone: '0404724242',
-      workingHoursDescription: 'الأحد، الثلاثاء، الخميس من 5:00 مساءً إلى 10:00 مساءً',
-      isActive: true,
-      order: 2,
-    },
-  ];
-
-  const initialServices: MedicalService[] = [
-    {
-      id: 'srv_arthroscopy',
-      name: 'مناظير المفاصل وإصابات الملاعب',
-      category: 'مناظير وجراحة',
-      description: 'تشخيص وعلاج قطع الرباط الصليبي الأمامي والخلفي، تمزق الغضروف الهلالي، وإصابات أوتار الكتف بأحدث تقنيات المناظير الجراحية الدقيقة.',
-      durationMinutes: 20,
-      price: 350,
-      isPriceVisible: true,
-      iconName: 'Activity',
-      order: 1,
-      isApproved: true,
-      isVisible: true,
-      faqs: [
-        {
-          question: 'كم تستغرق فترة التعافي بعد منظار الركبة؟',
-          answer: 'تختلف فترة التعافي حسب نوع الإجراء؛ ففي حالات تهذيب الغضروف يمكن المشي خلال أيام، بينما يحتاج الرباط الصليبي لبرنامج تأهيل يمتد من 3 إلى 6 أشهر.',
-        },
-      ],
-    },
-    {
-      id: 'srv_joint_replacement',
-      name: 'جراحة وتغيير مفاصل الركبة والحوض',
-      category: 'جراحة المفاصل',
-      description: 'علاج حالات الخشونة المتقدمة وتآكل المفاصل، وإجراء عمليات الاستبدال الكلي والجزئي لمفصل الركبة ومفصل الحوض باستخدام مفاصل صناعية عالية الجودة.',
-      durationMinutes: 25,
-      price: 350,
-      isPriceVisible: true,
-      iconName: 'ShieldPlus',
-      order: 2,
-      isApproved: true,
-      isVisible: true,
-    },
-    {
-      id: 'srv_spine_care',
-      name: 'علاج آلام العمود الفقري والانزلاق الغضروفي',
-      category: 'العمود الفقري',
-      description: 'تقييم شامل لآلام الظهر والرقبة، عرق النسا، ضيق القناة العصبية، مع وضع خطة علاج تحفظي وتداخلي متكاملة تناسب كل حالة.',
-      durationMinutes: 20,
-      price: 350,
-      isPriceVisible: true,
-      iconName: 'ActivitySquare',
-      order: 3,
-      isApproved: true,
-      isVisible: true,
-    },
-    {
-      id: 'srv_fractures_trauma',
-      name: 'تثبيت الكسور والإصابات والحوادث',
-      category: 'كسور وطوارئ',
-      description: 'علاج الكسور البسيطة والمركبة بأحدث الشرائح والمسامير ذاتية الغلق والجبائر الطبية الحديثة مع متابعة التئام العظام بالأشعة.',
-      durationMinutes: 20,
-      price: 350,
-      isPriceVisible: true,
-      iconName: 'Bone',
-      order: 4,
-      isApproved: true,
-      isVisible: true,
-    },
-    {
-      id: 'srv_pediatric_ortho',
-      name: 'عظام الأطفال والتشوهات الخلقية',
-      category: 'طب عظام الأطفال',
-      description: 'متابعة وعلاج خلع الورك الولادي، تقوس الساقين، الفلات فوت، والقدم المخلبية للأطفال بأحدث البروتوكولات الطبية المعتمدة.',
-      durationMinutes: 20,
-      price: 350,
-      isPriceVisible: true,
-      iconName: 'Smile',
-      order: 5,
-      isApproved: true,
-      isVisible: true,
-    },
-    {
-      id: 'srv_joint_injections',
-      name: 'الحقن العلاجي للمفاصل وبلازما الدم (PRP)',
-      category: 'علاج تحفظي',
-      description: 'جلسات الحقن الموضعي للركبة والكتف وحقن البلازما الغنية بالصفائح الدموية والجيل الهيالوروني لتخفيف آلام الخشونة والالتهابات.',
-      durationMinutes: 15,
-      price: 350,
-      isPriceVisible: true,
-      iconName: 'Syringe',
-      order: 6,
-      isApproved: true,
-      isVisible: true,
-    },
-  ];
-
-  const initialWorkingHours: WorkingHourRule[] = [
-    // Tanta branch: Saturday (6), Monday (1), Wednesday (3) - 16:00 to 22:00
-    { id: 'wh_tnt_sat', branchId: 'br_tanta', dayOfWeek: 6, isOpen: true, startTime: '16:00', endTime: '22:00', slotDurationMinutes: 20, gapMinutes: 5, breaks: [{ startTime: '19:00', endTime: '19:30', label: 'استراحة وصلاة المغرب' }] },
-    { id: 'wh_tnt_sun', branchId: 'br_tanta', dayOfWeek: 0, isOpen: false, startTime: '16:00', endTime: '22:00', slotDurationMinutes: 20, gapMinutes: 5, breaks: [] },
-    { id: 'wh_tnt_mon', branchId: 'br_tanta', dayOfWeek: 1, isOpen: true, startTime: '16:00', endTime: '22:00', slotDurationMinutes: 20, gapMinutes: 5, breaks: [{ startTime: '19:00', endTime: '19:30', label: 'استراحة وصلاة المغرب' }] },
-    { id: 'wh_tnt_tue', branchId: 'br_tanta', dayOfWeek: 2, isOpen: false, startTime: '16:00', endTime: '22:00', slotDurationMinutes: 20, gapMinutes: 5, breaks: [] },
-    { id: 'wh_tnt_wed', branchId: 'br_tanta', dayOfWeek: 3, isOpen: true, startTime: '16:00', endTime: '22:00', slotDurationMinutes: 20, gapMinutes: 5, breaks: [{ startTime: '19:00', endTime: '19:30', label: 'استراحة وصلاة المغرب' }] },
-    { id: 'wh_tnt_thu', branchId: 'br_tanta', dayOfWeek: 4, isOpen: false, startTime: '16:00', endTime: '22:00', slotDurationMinutes: 20, gapMinutes: 5, breaks: [] },
-    { id: 'wh_tnt_fri', branchId: 'br_tanta', dayOfWeek: 5, isOpen: false, startTime: '16:00', endTime: '22:00', slotDurationMinutes: 20, gapMinutes: 5, breaks: [] },
-
-    // Zefta branch: Sunday (0), Tuesday (2), Thursday (4) - 17:00 to 22:00
-    { id: 'wh_zft_sun', branchId: 'br_zefta', dayOfWeek: 0, isOpen: true, startTime: '17:00', endTime: '22:00', slotDurationMinutes: 20, gapMinutes: 5, breaks: [{ startTime: '19:15', endTime: '19:45', label: 'استراحة' }] },
-    { id: 'wh_zft_mon', branchId: 'br_zefta', dayOfWeek: 1, isOpen: false, startTime: '17:00', endTime: '22:00', slotDurationMinutes: 20, gapMinutes: 5, breaks: [] },
-    { id: 'wh_zft_tue', branchId: 'br_zefta', dayOfWeek: 2, isOpen: true, startTime: '17:00', endTime: '22:00', slotDurationMinutes: 20, gapMinutes: 5, breaks: [{ startTime: '19:15', endTime: '19:45', label: 'استراحة' }] },
-    { id: 'wh_zft_wed', branchId: 'br_zefta', dayOfWeek: 3, isOpen: false, startTime: '17:00', endTime: '22:00', slotDurationMinutes: 20, gapMinutes: 5, breaks: [] },
-    { id: 'wh_zft_thu', branchId: 'br_zefta', dayOfWeek: 4, isOpen: true, startTime: '17:00', endTime: '22:00', slotDurationMinutes: 20, gapMinutes: 5, breaks: [{ startTime: '19:15', endTime: '19:45', label: 'استراحة' }] },
-    { id: 'wh_zft_fri', branchId: 'br_zefta', dayOfWeek: 5, isOpen: false, startTime: '17:00', endTime: '22:00', slotDurationMinutes: 20, gapMinutes: 5, breaks: [] },
-    { id: 'wh_zft_sat', branchId: 'br_zefta', dayOfWeek: 6, isOpen: false, startTime: '17:00', endTime: '22:00', slotDurationMinutes: 20, gapMinutes: 5, breaks: [] },
-  ];
-
-  const initialDoctorProfile: DoctorProfile = {
-    name: 'د. حسام منصور أبو كحلة',
-    title: 'استشاري جراحة العظام والعمود الفقري والمفاصل',
-    militaryTitle: 'استشاري جراحة العظام بالقوات المسلحة',
-    bio: 'استشاري جراحة العظام والعمود الفقري والمفاصل والمناظير بالقوات المسلحة. خبرة سريرية وجراحية متخصصة في مناظير الركبة والكتف، استبدال المفاصل، تثبيت الكسور المعقدة، والتدخلات الدقيقة للعمود الفقري.',
-    fullBiography: [
-      'استشاري جراحة العظام والمفاصل والمناظير وإصابات الملاعب بمستشفيات القوات المسلحة.',
-      'متخصص في جراحات مناظير المفاصل الدقيقة وإعادة بناء أربطة الركبة والكتف.',
-      'خبرة واسعة في جراحات المفاصل الصناعية (تغيير مفصل الركبة والحوض) وعلاج حالات الخشونة المتقدمة.',
-      'اتباع أحدث البروتوكولات العالمية في تقييم آلام الظهر والانزلاق الغضروفي والكسور المعقدة.',
-    ],
-    specialties: [
-      'مناظير الركبة والكتف وإصابات الملاعب',
-      'جراحات استبدال وتغيير مفاصل الركبة والحوض',
-      'جراحات العمود الفقري والانزلاق الغضروفي',
-      'علاج وتثبيت الكسور المعقدة وإصابات الحوادث',
-      'علاج تشوهات العظام وعظام الأطفال',
-      'الحقن العلاجي الموضعي وبلازما المفاصل',
-    ],
-    experiences: [
-      {
-        period: 'مستمر',
-        title: 'استشاري جراحة العظام والعمود الفقري',
-        institution: 'مستشفيات القوات المسلحة',
-      },
-      {
-        period: 'مستمر',
-        title: 'استشاري ورئيس العيادة',
-        institution: 'عيادات د. حسام منصور (طنطا وزفتى)',
-      },
-    ],
-    patientCareApproach: [
-      'التشخيص السريري الدقيق والفحص الشامل قبل اللجوء لأي تدخل جراحي.',
-      'تفضيل الحلول التحفظية والتدخلات غير الجراحية متى ما كانت ملائمة للمريض.',
-      'شرح خطة العلاج للمريض وأسرته بوضوح وشفافية متناهية.',
-      'متابعة مستمرة ما بعد الإجراءات والعمليات لضمان العودة الآمنة للنشاط الطبيعي.',
-    ],
-    consultationFeeNote: 'سعر الكشف شامل المتابعة وإعادة الفحص خلال مدة الاستشارة المحددة.',
-    isApproved: true,
-    lastUpdatedBy: 'usr_super_admin',
-    updatedAt: new Date().toISOString(),
-  };
-
-  const initialAppointments: Appointment[] = [
-    {
-      id: 'apt_1001',
-      bookingNumber: 'HM-2026-1001',
-      patientId: 'usr_demo_patient',
-      patientName: 'محمد عبد الرحمن',
-      patientPhone: '01012345678',
-      patientEmail: 'patient@demo.com',
-      patientAge: 38,
-      patientGender: 'male',
-      serviceId: 'srv_arthroscopy',
-      serviceName: 'مناظير المفاصل وإصابات الملاعب',
-      branchId: 'br_tanta',
-      branchName: 'فرع طنطا الرئيسي',
-      appointmentDate: '2026-08-26',
-      appointmentTime: '17:00',
-      confirmationMethod: 'whatsapp',
-      status: 'confirmed',
-      notes: 'ألم مستمر في الركبة اليمنى بعد التواء أثناء ممارسة الرياضة.',
-      clinicInternalNotes: 'تم تأكيد الحضور هاتفياً وإرسال رسالة واتساب برقم الحجز.',
-      createdAt: '2026-08-20T12:30:00.000Z',
-      updatedAt: '2026-08-20T12:30:00.000Z',
-    },
-    {
-      id: 'apt_1002',
-      bookingNumber: 'HM-2026-1002',
-      patientName: 'فاطمة السيد علي',
-      patientPhone: '01123456789',
-      patientAge: 54,
-      patientGender: 'female',
-      serviceId: 'srv_joint_replacement',
-      serviceName: 'جراحة وتغيير مفاصل الركبة والحوض',
-      branchId: 'br_tanta',
-      branchName: 'فرع طنطا الرئيسي',
-      appointmentDate: '2026-08-26',
-      appointmentTime: '17:30',
-      confirmationMethod: 'sms',
-      status: 'new',
-      notes: 'خشونة من الدرجة الرابعة في الركبة اليسرى وصعوبة في صعود الدرج.',
-      createdAt: '2026-08-24T09:15:00.000Z',
-      updatedAt: '2026-08-24T09:15:00.000Z',
-    },
-    {
-      id: 'apt_1003',
-      bookingNumber: 'HM-2026-1003',
-      patientName: 'كريم محمود يوسف',
-      patientPhone: '01234567890',
-      patientAge: 29,
-      patientGender: 'male',
-      serviceId: 'srv_spine_care',
-      serviceName: 'علاج آلام العمود الفقري والانزلاق الغضروفي',
-      branchId: 'br_zefta',
-      branchName: 'فرع زفتى',
-      appointmentDate: '2026-08-27',
-      appointmentTime: '18:00',
-      confirmationMethod: 'whatsapp',
-      status: 'confirmed',
-      notes: 'آلام أسفل الظهر تمتد للساق اليمنى.',
-      createdAt: '2026-08-22T14:00:00.000Z',
-      updatedAt: '2026-08-22T14:00:00.000Z',
-    },
-  ];
-
-  const initialReviews: Review[] = [
-    {
-      id: 'rev_1',
-      patientName: 'م. سامح الشناوي',
-      rating: 5,
-      reviewText: 'دكتور حسام قمة في الذوق والمهنية والأمانة العلمية. أجرى لي عملية منظار للركبة لتنظيف الغضروف وعدت لممارسة المشي الطبيعي بفضل الله.',
-      treatmentType: 'منظار الركبة',
-      visitDate: '2026-07-15',
-      isApproved: true,
-      isFeatured: true,
-      order: 1,
-      createdAt: '2026-07-18T10:00:00.000Z',
-    },
-    {
-      id: 'rev_2',
-      patientName: 'أ. هدى عبد العال',
-      rating: 5,
-      reviewText: 'عيادة مجهزة ومنظمة جداً ومواعيد دقيقة. شرح لي دكتور حسام حالة خشونة الركبة بالتفصيل وبدأنا علاج تحفظي ممتاز مع تحسن كبير.',
-      treatmentType: 'علاج خشونة المفاصل',
-      visitDate: '2026-07-28',
-      isApproved: true,
-      isFeatured: true,
-      order: 2,
-      createdAt: '2026-07-30T11:30:00.000Z',
-    },
-    {
-      id: 'rev_3',
-      patientName: 'كابتن عمرو الخولي',
-      rating: 5,
-      reviewText: 'أشكر الدكتور حسام على سرعة التشخيص لإصابة الرباط الصليبي في فرع زفتى. اهتمام رائع ومتابعة دورية بكل تفانٍ.',
-      treatmentType: 'إصابات ملاعب والرباط الصليبي',
-      visitDate: '2026-08-05',
-      isApproved: true,
-      isFeatured: true,
-      order: 3,
-      createdAt: '2026-08-08T15:20:00.000Z',
-    },
-  ];
-
-  const initialFaqs: FAQItem[] = [
-    {
-      id: 'faq_1',
-      question: 'كيف يمكنني حجز موعد كشف في العيادة؟',
-      answer: 'يمكنك الحجز بسهولة عبر هذه المنصة باختيار التخصص والفرع (طنطا أو زفتى) واليوم والوقت المناسب لك، وسيصلك رقم حجز فوري ورسالة تأكيد عبر الواتساب أو الرسائل النصية.',
-      category: 'الحجز والمواعيد',
-      isApproved: true,
-      order: 1,
-      createdAt: '2026-01-01T00:00:00.000Z',
-    },
-    {
-      id: 'faq_2',
-      question: 'ما هي مواعيد العمل في فرعي طنطا وزفتى؟',
-      answer: 'فرع طنطا: السبت، الإثنين، والأربعاء من 4:00 عصراً حتى 10:00 مساءً. فرع زفتى: الأحد، الثلاثاء، والخميس من 5:00 مساءً حتى 10:00 مساءً.',
-      category: 'المواعيد والفروع',
-      isApproved: true,
-      order: 2,
-      createdAt: '2026-01-01T00:00:00.000Z',
-    },
-    {
-      id: 'faq_3',
-      question: 'هل يلزم إحضار الأشعة والفحوصات السابقة عند الكشف؟',
-      answer: 'نعم، يُفضل دائماً إحضار كافة الأشعات السابقة (عادية أو رنين مغناطيسي أو مقطعية) وأي تقارير طبية سابقة للمساعدة في دقة التقييم وتاريخ الحالة.',
-      category: 'تعليمات الزيارة',
-      isApproved: true,
-      order: 3,
-      createdAt: '2026-01-01T00:00:00.000Z',
-    },
-    {
-      id: 'faq_4',
-      question: 'هل يمكن تعديل أو إلغاء الموعد بعد تأكيده؟',
-      answer: 'نعم، يمكنك تعديل أو إلغاء موعدك إما من خلال حساب المريض في المنصة قبل موعد الكشف، أو بالتواصل مع أرقام الاستقبال مباشرة.',
-      category: 'الحجز والمواعيد',
-      isApproved: true,
-      order: 4,
-      createdAt: '2026-01-01T00:00:00.000Z',
-    },
-  ];
-
-  const initialAnnouncements: Announcement[] = [
-    {
-      id: 'anc_1',
-      message: 'أهلاً بكم في المنصة الطبية لعيادة د. حسام منصور - يرجى الحجز المسبق لضمان تنظيم المواعيد والحد من فترات الانتظار.',
-      type: 'info',
-      isActive: true,
-      createdAt: '2026-01-01T00:00:00.000Z',
-    },
-  ];
-
-  const initialAuditLogs: AuditLog[] = [
-    {
-      id: 'log_init',
-      userId: 'usr_super_admin',
-      userName: 'د. حسام منصور أبو كحلة',
-      userRole: 'super_admin',
-      action: 'SYSTEM_INITIALIZATION',
-      entityType: 'System',
-      entityId: 'root',
-      details: 'تهيئة النظام والبيانات الأولية للعيادة وقواعد المواعيد والفروع بنجاح.',
-      timestamp: '2026-01-01T08:00:00.000Z',
-    },
-  ];
-
-  const initialNotifications: NotificationRecord[] = [
-    {
-      id: 'notif_1',
-      appointmentId: 'apt_1001',
-      recipientPhone: '01012345678',
-      type: 'booking_confirmation',
-      channel: 'whatsapp',
-      content: 'تم تأكيد حجز موعدك رقم HM-2026-1001 في عيادة د. حسام منصور - فرع طنطا يوم الأربعاء 2026-08-26 الساعة 17:00.',
-      status: 'delivered',
-      createdAt: '2026-08-20T12:30:00.000Z',
-    },
-  ];
-
-  return {
-    users: initialUsers,
-    branches: initialBranches,
-    services: initialServices,
-    appointments: initialAppointments,
-    workingHours: initialWorkingHours,
-    exceptions: [],
-    doctorProfile: initialDoctorProfile,
-    reviews: initialReviews,
-    faqs: initialFaqs,
-    announcements: initialAnnouncements,
-    auditLogs: initialAuditLogs,
-    notifications: initialNotifications,
-  };
+function ts(value: any): Timestamp | null {
+  if (!value) return null;
+  if (value instanceof Timestamp) return value;
+  if (value instanceof Date) return Timestamp.fromDate(value);
+  if (typeof value === 'string') {
+    const d = new Date(value);
+    if (!isNaN(d.getTime())) return Timestamp.fromDate(d);
+  }
+  return null;
 }
 
 class ClinicDatabase {
-  private data: DatabaseSchema;
-
-  constructor() {
-    ensureDataDir();
-    if (fs.existsSync(DB_FILE)) {
-      try {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
-        this.data = JSON.parse(raw);
-      } catch (err) {
-        console.error('Error reading database file, re-initializing...', err);
-        this.data = getInitialData();
-        this.save();
-      }
-    } else {
-      this.data = getInitialData();
-      this.save();
-    }
-  }
-
-  private save() {
-    try {
-      ensureDataDir();
-      fs.writeFileSync(DB_FILE, JSON.stringify(this.data, null, 2), 'utf-8');
-    } catch (err) {
-      console.error('Error saving database file:', err);
-    }
-  }
-
   // Audit Logger
-  public logAudit(userId: string, userName: string, userRole: string, action: string, entityType: string, entityId: string, details: string) {
-    const log: AuditLog = {
-      id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+  public async logAudit(
+    userId: string,
+    userName: string,
+    userRole: string,
+    action: string,
+    entityType: string,
+    entityId: string,
+    details: string
+  ): Promise<void> {
+    await firestore().collection(COL.auditLogs).add({
       userId,
       userName,
       userRole,
@@ -503,33 +88,47 @@ class ClinicDatabase {
       entityType,
       entityId,
       details,
-      timestamp: new Date().toISOString(),
-    };
-    this.data.auditLogs.unshift(log);
-    // Keep max 500 logs
-    if (this.data.auditLogs.length > 500) {
-      this.data.auditLogs = this.data.auditLogs.slice(0, 500);
-    }
-    this.save();
+      timestamp: timestamp(),
+    });
   }
 
-  // Users
-  public getUsers() {
-    return this.data.users.map(({ passwordHash, ...u }) => u);
+  // ----------------- USERS -----------------
+  public async getUsers(): Promise<User[]> {
+    const snap = await firestore().collection(COL.users).get();
+    return snap.docs.map(d => {
+      const data = d.data() as UserWithPassword;
+      const { passwordHash: _omit, ...safe } = data as any;
+      return safe as User;
+    });
   }
 
-  public findUserById(id: string) {
-    return this.data.users.find(u => u.id === id);
+  public async findUserById(id: string): Promise<UserWithPassword | null> {
+    const doc = await firestore().collection(COL.users).doc(id).get();
+    if (!doc.exists) return null;
+    return doc.data() as UserWithPassword;
   }
 
-  public findUserByPhoneOrEmail(identifier: string) {
-    const clean = identifier.trim().toLowerCase();
-    return this.data.users.find(
-      u => u.phone === clean || (u.email && u.email.toLowerCase() === clean)
-    );
+  public async findUserByPhoneOrEmail(identifier: string): Promise<UserWithPassword | null> {
+    const clean = identifier.trim();
+    const lower = clean.toLowerCase();
+    // Try phone first
+    const phoneQ = await firestore()
+      .collection(COL.users)
+      .where('phone', '==', clean)
+      .limit(1)
+      .get();
+    if (!phoneQ.empty) return phoneQ.docs[0].data() as UserWithPassword;
+    // Try email
+    const emailQ = await firestore()
+      .collection(COL.users)
+      .where('email', '==', lower)
+      .limit(1)
+      .get();
+    if (!emailQ.empty) return emailQ.docs[0].data() as UserWithPassword;
+    return null;
   }
 
-  public createUser(userData: {
+  public async createUser(userData: {
     name: string;
     phone: string;
     email?: string;
@@ -537,209 +136,245 @@ class ClinicDatabase {
     role?: 'patient' | 'super_admin' | 'receptionist' | 'content_editor';
     gender?: 'male' | 'female';
     age?: number;
-  }) {
-    const salt = bcrypt.genSaltSync(10);
-    const passwordHash = bcrypt.hashSync(userData.password, salt);
-    const newUser: User & { passwordHash: string } = {
-      id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+  }): Promise<User> {
+    const id = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const baseUser: UserWithPassword = {
+      id,
       name: userData.name,
       phone: userData.phone,
       email: userData.email,
       role: userData.role || 'patient',
       gender: userData.gender,
       age: userData.age,
-      passwordHash,
+      passwordHash: '', // passwords live in Firebase Auth only
       createdAt: new Date().toISOString(),
     };
-    this.data.users.push(newUser);
-    this.save();
-    const { passwordHash: _, ...safeUser } = newUser;
-    return safeUser;
+    await firestore().collection(COL.users).doc(id).set(baseUser);
+    const { passwordHash: _omit, ...safe } = baseUser;
+    return safe as User;
   }
 
-  public updateUser(id: string, updates: Partial<User>) {
-    const idx = this.data.users.findIndex(u => u.id === id);
-    if (idx === -1) return null;
-    this.data.users[idx] = { ...this.data.users[idx], ...updates };
-    this.save();
-    const { passwordHash: _, ...safeUser } = this.data.users[idx];
-    return safeUser;
-  }
-
-  public updateUserPassword(id: string, newPassword: string) {
-    const idx = this.data.users.findIndex(u => u.id === id);
-    if (idx === -1) return false;
-    const salt = bcrypt.genSaltSync(10);
-    this.data.users[idx].passwordHash = bcrypt.hashSync(newPassword, salt);
-    this.save();
-    return true;
-  }
-
-  // Branches
-  public getBranches(includeInactive = false) {
-    return this.data.branches
-      .filter(b => includeInactive || b.isActive)
-      .sort((a, b) => a.order - b.order);
-  }
-
-  public findBranchById(id: string) {
-    return this.data.branches.find(b => b.id === id);
-  }
-
-  public createBranch(branch: Omit<Branch, 'id'>) {
-    const newBranch: Branch = {
-      ...branch,
-      id: `br_${Date.now()}`,
+  public async createUserWithId(
+    id: string,
+    userData: {
+      name: string;
+      phone: string;
+      email?: string;
+      password: string;
+      role?: 'patient' | 'super_admin' | 'receptionist' | 'content_editor';
+      gender?: 'male' | 'female';
+      age?: number;
+    }
+  ): Promise<User> {
+    const baseUser: UserWithPassword = {
+      id,
+      name: userData.name,
+      phone: userData.phone,
+      email: userData.email,
+      role: userData.role || 'patient',
+      gender: userData.gender,
+      age: userData.age,
+      passwordHash: '', // passwords live in Firebase Auth only
+      createdAt: new Date().toISOString(),
     };
-    this.data.branches.push(newBranch);
-    this.save();
+    await firestore().collection(COL.users).doc(id).set(baseUser);
+    const { passwordHash: _omit, ...safe } = baseUser;
+    return safe as User;
+  }
+
+  public async updateUser(id: string, updates: Partial<User>): Promise<User | null> {
+    const ref = firestore().collection(COL.users).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    const clean: any = { ...updates };
+    // Don't allow overwriting id
+    delete clean.id;
+    await ref.update(clean);
+    const fresh = await ref.get();
+    const data = fresh.data() as UserWithPassword;
+    const { passwordHash: _omit, ...safe } = data;
+    return safe as User;
+  }
+
+  // ----------------- BRANCHES -----------------
+  public async getBranches(includeInactive = false): Promise<Branch[]> {
+    const snap = await firestore().collection(COL.branches).get();
+    return snap.docs
+      .map(d => d.data() as Branch)
+      .filter(b => includeInactive || b.isActive)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+  }
+
+  public async findBranchById(id: string): Promise<Branch | null> {
+    const doc = await firestore().collection(COL.branches).doc(id).get();
+    return doc.exists ? (doc.data() as Branch) : null;
+  }
+
+  public async createBranch(branch: Omit<Branch, 'id'>): Promise<Branch> {
+    const id = `br_${Date.now()}`;
+    const newBranch: Branch = { ...branch, id } as Branch;
+    await firestore().collection(COL.branches).doc(id).set(newBranch);
     return newBranch;
   }
 
-  public updateBranch(id: string, updates: Partial<Branch>) {
-    const idx = this.data.branches.findIndex(b => b.id === id);
-    if (idx === -1) return null;
-    this.data.branches[idx] = { ...this.data.branches[idx], ...updates };
-    this.save();
-    return this.data.branches[idx];
+  public async updateBranch(id: string, updates: Partial<Branch>): Promise<Branch | null> {
+    const ref = firestore().collection(COL.branches).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    const clean: any = { ...updates };
+    delete clean.id;
+    await ref.update(clean);
+    const fresh = await ref.get();
+    return fresh.data() as Branch;
   }
 
-  public deleteBranch(id: string) {
-    const idx = this.data.branches.findIndex(b => b.id === id);
-    if (idx === -1) return false;
-    this.data.branches.splice(idx, 1);
-    this.save();
+  public async deleteBranch(id: string): Promise<boolean> {
+    const ref = firestore().collection(COL.branches).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return false;
+    await ref.delete();
     return true;
   }
 
-  // Services
-  public getServices(includeUnapproved = false) {
-    return this.data.services
+  // ----------------- SERVICES -----------------
+  public async getServices(includeUnapproved = false): Promise<MedicalService[]> {
+    const snap = await firestore().collection(COL.services).get();
+    return snap.docs
+      .map(d => d.data() as MedicalService)
       .filter(s => includeUnapproved || (s.isApproved && s.isVisible))
-      .sort((a, b) => a.order - b.order);
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
   }
 
-  public findServiceById(id: string) {
-    return this.data.services.find(s => s.id === id);
+  public async findServiceById(id: string): Promise<MedicalService | null> {
+    const doc = await firestore().collection(COL.services).doc(id).get();
+    return doc.exists ? (doc.data() as MedicalService) : null;
   }
 
-  public createService(service: Omit<MedicalService, 'id'>) {
-    const newService: MedicalService = {
-      ...service,
-      id: `srv_${Date.now()}`,
-    };
-    this.data.services.push(newService);
-    this.save();
+  public async createService(service: Omit<MedicalService, 'id'>): Promise<MedicalService> {
+    const id = `srv_${Date.now()}`;
+    const newService: MedicalService = { ...service, id } as MedicalService;
+    await firestore().collection(COL.services).doc(id).set(newService);
     return newService;
   }
 
-  public updateService(id: string, updates: Partial<MedicalService>) {
-    const idx = this.data.services.findIndex(s => s.id === id);
-    if (idx === -1) return null;
-    this.data.services[idx] = { ...this.data.services[idx], ...updates };
-    this.save();
-    return this.data.services[idx];
+  public async updateService(
+    id: string,
+    updates: Partial<MedicalService>
+  ): Promise<MedicalService | null> {
+    const ref = firestore().collection(COL.services).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    const clean: any = { ...updates };
+    delete clean.id;
+    await ref.update(clean);
+    const fresh = await ref.get();
+    return fresh.data() as MedicalService;
   }
 
-  public deleteService(id: string) {
-    const idx = this.data.services.findIndex(s => s.id === id);
-    if (idx === -1) return false;
-    this.data.services.splice(idx, 1);
-    this.save();
+  public async deleteService(id: string): Promise<boolean> {
+    const ref = firestore().collection(COL.services).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return false;
+    await ref.delete();
     return true;
   }
 
-  // Working Hours & Exceptions
-  public getWorkingHours(branchId?: string) {
-    if (branchId) {
-      return this.data.workingHours.filter(wh => wh.branchId === branchId);
-    }
-    return this.data.workingHours;
+  // ----------------- WORKING HOURS & EXCEPTIONS -----------------
+  public async getWorkingHours(branchId?: string): Promise<WorkingHourRule[]> {
+    let q: Query = firestore().collection(COL.workingHours);
+    if (branchId) q = q.where('branchId', '==', branchId);
+    const snap = await q.get();
+    return snap.docs.map(d => d.data() as WorkingHourRule);
   }
 
-  public updateWorkingHour(id: string, updates: Partial<WorkingHourRule>) {
-    const idx = this.data.workingHours.findIndex(wh => wh.id === id);
-    if (idx === -1) return null;
-    this.data.workingHours[idx] = { ...this.data.workingHours[idx], ...updates };
-    this.save();
-    return this.data.workingHours[idx];
+  public async updateWorkingHour(
+    id: string,
+    updates: Partial<WorkingHourRule>
+  ): Promise<WorkingHourRule | null> {
+    const ref = firestore().collection(COL.workingHours).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    const clean: any = { ...updates };
+    delete clean.id;
+    await ref.update(clean);
+    const fresh = await ref.get();
+    return fresh.data() as WorkingHourRule;
   }
 
-  public getExceptions(branchId?: string) {
-    if (branchId) {
-      return this.data.exceptions.filter(e => e.branchId === branchId);
-    }
-    return this.data.exceptions;
+  public async getExceptions(branchId?: string): Promise<ScheduleException[]> {
+    let q: Query = firestore().collection(COL.exceptions);
+    if (branchId) q = q.where('branchId', '==', branchId);
+    const snap = await q.get();
+    return snap.docs.map(d => d.data() as ScheduleException);
   }
 
-  public createException(exception: Omit<ScheduleException, 'id'>) {
-    const newEx: ScheduleException = {
-      ...exception,
-      id: `ex_${Date.now()}`,
-    };
-    this.data.exceptions.push(newEx);
-    this.save();
+  public async createException(
+    exception: Omit<ScheduleException, 'id'>
+  ): Promise<ScheduleException> {
+    const id = `ex_${Date.now()}`;
+    const newEx: ScheduleException = { ...exception, id } as ScheduleException;
+    await firestore().collection(COL.exceptions).doc(id).set(newEx);
     return newEx;
   }
 
-  public deleteException(id: string) {
-    const idx = this.data.exceptions.findIndex(e => e.id === id);
-    if (idx === -1) return false;
-    this.data.exceptions.splice(idx, 1);
-    this.save();
+  public async deleteException(id: string): Promise<boolean> {
+    const ref = firestore().collection(COL.exceptions).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return false;
+    await ref.delete();
     return true;
   }
 
-  // Available Slots Algorithm
-  public calculateAvailableSlots(branchId: string, serviceId: string, dateStr: string): AvailableSlot[] {
+  // ----------------- AVAILABLE SLOTS -----------------
+  public async calculateAvailableSlots(
+    branchId: string,
+    serviceId: string,
+    dateStr: string
+  ): Promise<AvailableSlot[]> {
     const dateObj = new Date(dateStr + 'T00:00:00');
-    if (isNaN(dateObj.getTime())) {
-      return [];
-    }
+    if (isNaN(dateObj.getTime())) return [];
 
-    // Check if date is in the past (before today)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const targetDate = new Date(dateObj);
     targetDate.setHours(0, 0, 0, 0);
-    if (targetDate < today) {
-      return [];
-    }
+    if (targetDate < today) return [];
 
-    const dayOfWeek = dateObj.getDay(); // 0=Sunday, 6=Saturday
+    const dayOfWeek = dateObj.getDay();
 
-    // Check for explicit holiday/exception on this date
-    const exception = this.data.exceptions.find(
-      e => e.branchId === branchId && e.date === dateStr
-    );
+    const excSnap = await firestore()
+      .collection(COL.exceptions)
+      .where('branchId', '==', branchId)
+      .where('date', '==', dateStr)
+      .limit(1)
+      .get();
+    const exception = excSnap.empty ? null : (excSnap.docs[0].data() as ScheduleException);
 
     if (exception && (exception.type === 'holiday' || exception.type === 'off_day')) {
       return [];
     }
 
-    // Find standard working hour rule for this branch & day
-    const rule = this.data.workingHours.find(
-      wh => wh.branchId === branchId && wh.dayOfWeek === dayOfWeek
-    );
+    const ruleSnap = await firestore()
+      .collection(COL.workingHours)
+      .where('branchId', '==', branchId)
+      .where('dayOfWeek', '==', dayOfWeek)
+      .limit(1)
+      .get();
+    const rule = ruleSnap.empty ? null : (ruleSnap.docs[0].data() as WorkingHourRule);
 
-    if (!rule || !rule.isOpen) {
-      return [];
-    }
+    if (!rule || !rule.isOpen) return [];
 
     let startTimeStr = rule.startTime;
     let endTimeStr = rule.endTime;
-
     if (exception && exception.type === 'special_hours' && exception.startTime && exception.endTime) {
       startTimeStr = exception.startTime;
       endTimeStr = exception.endTime;
     }
 
-    // Find service duration
-    const service = this.data.services.find(s => s.id === serviceId);
-    const slotDuration = service ? service.durationMinutes : (rule.slotDurationMinutes || 20);
+    const service = serviceId ? await this.findServiceById(serviceId) : null;
+    const slotDuration = service ? service.durationMinutes : rule.slotDurationMinutes || 20;
     const gap = rule.gapMinutes || 5;
 
-    // Convert HH:MM to total minutes from midnight
     const parseMins = (t: string) => {
       const [h, m] = t.split(':').map(Number);
       return h * 60 + m;
@@ -753,51 +388,43 @@ class ClinicDatabase {
     const startMins = parseMins(startTimeStr);
     const endMins = parseMins(endTimeStr);
 
-    // Existing active bookings on this branch and date
-    const existingBookings = this.data.appointments.filter(
-      apt =>
-        apt.branchId === branchId &&
-        apt.appointmentDate === dateStr &&
-        apt.status !== 'cancelled'
-    );
+    const bookingsSnap = await firestore()
+      .collection(COL.appointments)
+      .where('branchId', '==', branchId)
+      .where('appointmentDate', '==', dateStr)
+      .where('status', '!=', 'cancelled')
+      .get();
+    const existingBookings = bookingsSnap.docs.map(d => d.data() as Appointment);
 
     const breaks = rule.breaks || [];
-
     const slots: AvailableSlot[] = [];
     let currentMins = startMins;
 
     while (currentMins + slotDuration <= endMins) {
       const slotTimeStr = formatMins(currentMins);
-
-      // Check if slot falls in a break
       const inBreak = breaks.some(b => {
         const bStart = parseMins(b.startTime);
         const bEnd = parseMins(b.endTime);
         return currentMins >= bStart && currentMins < bEnd;
       });
-
       if (inBreak) {
         currentMins += slotDuration + gap;
         continue;
       }
-
-      // Check if already booked
       const isBooked = existingBookings.some(apt => apt.appointmentTime === slotTimeStr);
-
       slots.push({
         time: slotTimeStr,
         isAvailable: !isBooked,
         reason: isBooked ? 'محجوز' : undefined,
       });
-
       currentMins += slotDuration + gap;
     }
 
     return slots;
   }
 
-  // Appointments
-  public getAppointments(filters?: {
+  // ----------------- APPOINTMENTS -----------------
+  public async getAppointments(filters?: {
     patientId?: string;
     branchId?: string;
     serviceId?: string;
@@ -805,8 +432,9 @@ class ClinicDatabase {
     dateFrom?: string;
     dateTo?: string;
     search?: string;
-  }) {
-    let list = [...this.data.appointments];
+  }): Promise<Appointment[]> {
+    const snap = await firestore().collection(COL.appointments).get();
+    let list = snap.docs.map(d => d.data() as Appointment);
 
     if (filters) {
       if (filters.patientId) {
@@ -822,42 +450,51 @@ class ClinicDatabase {
         list = list.filter(a => a.status === filters.status);
       }
       if (filters.dateFrom) {
-        list = list.filter(a => a.appointmentDate >= filters.dateFrom!);
+        list = list.filter(a => (a.appointmentDate || '') >= filters.dateFrom!);
       }
       if (filters.dateTo) {
-        list = list.filter(a => a.appointmentDate <= filters.dateTo!);
+        list = list.filter(a => (a.appointmentDate || '') <= filters.dateTo!);
       }
       if (filters.search) {
         const s = filters.search.toLowerCase().trim();
         list = list.filter(
           a =>
-            a.bookingNumber.toLowerCase().includes(s) ||
-            a.patientName.toLowerCase().includes(s) ||
-            a.patientPhone.includes(s)
+            (a.bookingNumber || '').toLowerCase().includes(s) ||
+            (a.patientName || '').toLowerCase().includes(s) ||
+            (a.patientPhone || '').includes(s)
         );
       }
     }
 
     return list.sort((a, b) => {
-      // Sort upcoming dates first, then descending creation
-      if (a.appointmentDate === b.appointmentDate) {
-        return a.appointmentTime.localeCompare(b.appointmentTime);
+      const adA = a.appointmentDate || '';
+      const adB = b.appointmentDate || '';
+      if (adA === adB) {
+        return (a.appointmentTime || '').localeCompare(b.appointmentTime || '');
       }
-      return b.appointmentDate.localeCompare(a.appointmentDate);
+      return adB.localeCompare(adA);
     });
   }
 
-  public findAppointmentById(id: string) {
-    return this.data.appointments.find(a => a.id === id);
+  public async findAppointmentById(id: string): Promise<Appointment | null> {
+    const doc = await firestore().collection(COL.appointments).doc(id).get();
+    return doc.exists ? (doc.data() as Appointment) : null;
   }
 
-  public findAppointmentByBookingNumber(bookingNumber: string) {
-    return this.data.appointments.find(
-      a => a.bookingNumber.toLowerCase() === bookingNumber.toLowerCase().trim()
-    );
+  public async findAppointmentByBookingNumber(
+    bookingNumber: string
+  ): Promise<Appointment | null> {
+    const normalized = bookingNumber.toLowerCase().trim();
+    const snap = await firestore()
+      .collection(COL.appointments)
+      .where('bookingNumber_lower', '==', normalized)
+      .limit(1)
+      .get();
+    if (snap.empty) return null;
+    return snap.docs[0].data() as Appointment;
   }
 
-  public createAppointment(data: {
+  public async createAppointment(data: {
     patientId?: string;
     patientName: string;
     patientPhone: string;
@@ -870,29 +507,33 @@ class ClinicDatabase {
     appointmentTime: string;
     confirmationMethod?: 'whatsapp' | 'sms' | 'call';
     notes?: string;
-  }) {
-    // Check duplicate slot conflict
-    const conflict = this.data.appointments.find(
-      a =>
-        a.branchId === data.branchId &&
-        a.appointmentDate === data.appointmentDate &&
-        a.appointmentTime === data.appointmentTime &&
-        a.status !== 'cancelled'
-    );
-
-    if (conflict) {
+  }): Promise<Appointment> {
+    const conflictQ = await firestore()
+      .collection(COL.appointments)
+      .where('branchId', '==', data.branchId)
+      .where('appointmentDate', '==', data.appointmentDate)
+      .where('appointmentTime', '==', data.appointmentTime)
+      .where('status', '!=', 'cancelled')
+      .limit(1)
+      .get();
+    if (!conflictQ.empty) {
       throw new Error('هذا الموعد تم حجزه بالفعل لمريض آخر، يرجى اختيار موعد آخر متاح.');
     }
 
-    const service = this.data.services.find(s => s.id === data.serviceId);
-    const branch = this.data.branches.find(b => b.id === data.branchId);
+    const [service, branch] = await Promise.all([
+      this.findServiceById(data.serviceId),
+      this.findBranchById(data.branchId),
+    ]);
 
     const randomDigits = Math.floor(1000 + Math.random() * 9000);
     const bookingNumber = `HM-${new Date().getFullYear()}-${randomDigits}`;
+    const id = `apt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const nowIso = new Date().toISOString();
 
     const newAppointment: Appointment = {
-      id: `apt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id,
       bookingNumber,
+      bookingNumber_lower: bookingNumber.toLowerCase(),
       patientId: data.patientId,
       patientName: data.patientName.trim(),
       patientPhone: data.patientPhone.trim(),
@@ -908,14 +549,13 @@ class ClinicDatabase {
       confirmationMethod: data.confirmationMethod || 'whatsapp',
       status: 'new',
       notes: data.notes?.trim(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: nowIso,
+      updatedAt: nowIso,
     };
 
-    this.data.appointments.push(newAppointment);
+    await firestore().collection(COL.appointments).doc(id).set(newAppointment);
 
-    // Queue notification
-    this.createNotification({
+    await this.createNotification({
       appointmentId: newAppointment.id,
       recipientPhone: newAppointment.patientPhone,
       recipientEmail: newAppointment.patientEmail,
@@ -924,28 +564,28 @@ class ClinicDatabase {
       content: `تم تسجيل حجزك بنجاح في عيادة د. حسام منصور برقم (${bookingNumber}) بتاريخ ${newAppointment.appointmentDate} الساعة ${newAppointment.appointmentTime} بـ ${newAppointment.branchName}.`,
     });
 
-    this.save();
     return newAppointment;
   }
 
-  public updateAppointmentStatus(
+  public async updateAppointmentStatus(
     id: string,
     status: Appointment['status'],
     reason?: string,
     internalNotes?: string
-  ) {
-    const idx = this.data.appointments.findIndex(a => a.id === id);
-    if (idx === -1) return null;
+  ): Promise<Appointment | null> {
+    const ref = firestore().collection(COL.appointments).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    const apt = doc.data() as Appointment;
+    const updates: any = { status, updatedAt: new Date().toISOString() };
+    if (reason) updates.cancellationReason = reason;
+    if (internalNotes !== undefined) updates.clinicInternalNotes = internalNotes;
+    await ref.update(updates);
 
-    const apt = this.data.appointments[idx];
-    apt.status = status;
-    if (reason) apt.cancellationReason = reason;
-    if (internalNotes !== undefined) apt.clinicInternalNotes = internalNotes;
-    apt.updatedAt = new Date().toISOString();
+    const fresh = (await ref.get()).data() as Appointment;
 
-    // Trigger notification if status is confirmed or cancelled
     if (status === 'confirmed') {
-      this.createNotification({
+      await this.createNotification({
         appointmentId: apt.id,
         recipientPhone: apt.patientPhone,
         recipientEmail: apt.patientEmail,
@@ -954,7 +594,7 @@ class ClinicDatabase {
         content: `تم تأكيد موعدك رسمياً في عيادة د. حسام منصور برقم (${apt.bookingNumber}) في ${apt.branchName} يوم ${apt.appointmentDate} في تمام ${apt.appointmentTime}. نتشرف بخدمتكم.`,
       });
     } else if (status === 'cancelled') {
-      this.createNotification({
+      await this.createNotification({
         appointmentId: apt.id,
         recipientPhone: apt.patientPhone,
         recipientEmail: apt.patientEmail,
@@ -964,67 +604,71 @@ class ClinicDatabase {
       });
     }
 
-    this.save();
-    return apt;
+    return fresh;
   }
 
-  public rescheduleAppointment(
+  public async rescheduleAppointment(
     id: string,
     newDate: string,
     newTime: string,
     newBranchId?: string
-  ) {
-    const idx = this.data.appointments.findIndex(a => a.id === id);
-    if (idx === -1) return null;
-
-    const apt = this.data.appointments[idx];
+  ): Promise<Appointment | null> {
+    const ref = firestore().collection(COL.appointments).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    const apt = doc.data() as Appointment;
     const targetBranchId = newBranchId || apt.branchId;
 
-    // Check slot conflict
-    const conflict = this.data.appointments.find(
-      a =>
-        a.id !== id &&
-        a.branchId === targetBranchId &&
-        a.appointmentDate === newDate &&
-        a.appointmentTime === newTime &&
-        a.status !== 'cancelled'
-    );
-
+    const conflictQ = await firestore()
+      .collection(COL.appointments)
+      .where('branchId', '==', targetBranchId)
+      .where('appointmentDate', '==', newDate)
+      .where('appointmentTime', '==', newTime)
+      .where('status', '!=', 'cancelled')
+      .get();
+    const conflict = conflictQ.docs.find(d => d.id !== id);
     if (conflict) {
       throw new Error('الموعد الجديد المختار محجوز بالفعل، يرجى اختيار موعد آخر.');
     }
 
-    const branch = this.data.branches.find(b => b.id === targetBranchId);
+    const branch = await this.findBranchById(targetBranchId);
+    const updates: any = {
+      branchId: targetBranchId,
+      branchName: branch?.name || apt.branchName,
+      appointmentDate: newDate,
+      appointmentTime: newTime,
+      status: 'confirmed',
+      updatedAt: new Date().toISOString(),
+    };
+    await ref.update(updates);
 
-    apt.branchId = targetBranchId;
-    if (branch) apt.branchName = branch.name;
-    apt.appointmentDate = newDate;
-    apt.appointmentTime = newTime;
-    apt.status = 'confirmed';
-    apt.updatedAt = new Date().toISOString();
+    const fresh = (await ref.get()).data() as Appointment;
 
-    this.createNotification({
+    await this.createNotification({
       appointmentId: apt.id,
       recipientPhone: apt.patientPhone,
       recipientEmail: apt.patientEmail,
       type: 'reschedule',
       channel: apt.confirmationMethod === 'sms' ? 'sms' : 'whatsapp',
-      content: `تم تعديل موعدك في عيادة د. حسام منصور إلى يوم ${newDate} الساعة ${newTime} في ${apt.branchName}. رقم الحجز: ${apt.bookingNumber}.`,
+      content: `تم تعديل موعدك في عيادة د. حسام منصور إلى يوم ${newDate} الساعة ${newTime} في ${fresh.branchName}. رقم الحجز: ${apt.bookingNumber}.`,
     });
 
-    this.save();
-    return apt;
+    return fresh;
   }
 
-  // Dashboard Stats
-  public getDashboardStats(): DashboardStats {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const appointments = this.data.appointments;
+  // ----------------- DASHBOARD STATS -----------------
+  public async getDashboardStats(): Promise<DashboardStats> {
+    const [appointments, branches, patients] = await Promise.all([
+      this.getAppointments(),
+      this.getBranches(true),
+      this.getUsers(),
+    ]);
 
-    // Calculate start of current week (Saturday or Sunday)
+    const todayStr = new Date().toISOString().split('T')[0];
+
     const now = new Date();
     const day = now.getDay();
-    const diffToWeekStart = (day + 1) % 7; // Saturday as week start in Egypt
+    const diffToWeekStart = (day + 1) % 7;
     const weekStart = new Date(now);
     weekStart.setDate(now.getDate() - diffToWeekStart);
     weekStart.setHours(0, 0, 0, 0);
@@ -1037,14 +681,13 @@ class ClinicDatabase {
     const cancelledBookings = appointments.filter(a => a.status === 'cancelled').length;
     const completedBookings = appointments.filter(a => a.status === 'completed').length;
     const checkedInBookings = appointments.filter(a => a.status === 'checked_in').length;
+    const noShowBookings = appointments.filter(a => a.status === 'no_show').length;
 
-    // Total unique patient phone numbers
     const uniquePatients = new Set(appointments.map(a => a.patientPhone)).size;
-
-    const totalResolved = completedBookings + checkedInBookings + appointments.filter(a => a.status === 'no_show').length;
+    const totalResolved = completedBookings + checkedInBookings + noShowBookings;
     const attendanceRate = totalResolved > 0 ? Math.round(((completedBookings + checkedInBookings) / totalResolved) * 100) : 94;
 
-    const branchBreakdown = this.data.branches.map(b => ({
+    const branchBreakdown = branches.map(b => ({
       branchName: b.name,
       count: appointments.filter(a => a.branchId === b.id).length,
     }));
@@ -1056,130 +699,203 @@ class ClinicDatabase {
       confirmedBookings,
       cancelledBookings,
       completedBookings,
-      totalPatients: uniquePatients || this.data.users.filter(u => u.role === 'patient').length,
+      totalPatients: uniquePatients || patients.filter(u => u.role === 'patient').length,
       attendanceRate,
       branchBreakdown,
     };
   }
 
-  // Content (Doctor Profile, FAQs, Reviews, Announcements)
-  public getDoctorProfile() {
-    return this.data.doctorProfile;
+  // ----------------- CONTENT (Doctor Profile, FAQs, Reviews, Announcements) -----------------
+  public async getDoctorProfile(): Promise<DoctorProfile> {
+    const doc = await firestore()
+      .collection(COL.doctorProfile)
+      .doc(DOCTOR_PROFILE_DOC_ID)
+      .get();
+    if (!doc.exists) {
+      const empty: DoctorProfile = {
+        name: '',
+        title: '',
+        militaryTitle: '',
+        bio: '',
+        fullBiography: [],
+        specialties: [],
+        experiences: [],
+        patientCareApproach: [],
+        consultationFeeNote: '',
+        isApproved: false,
+        lastUpdatedBy: '',
+        updatedAt: new Date().toISOString(),
+      };
+      await firestore().collection(COL.doctorProfile).doc(DOCTOR_PROFILE_DOC_ID).set(empty);
+      return empty;
+    }
+    return doc.data() as DoctorProfile;
   }
 
-  public updateDoctorProfile(profile: Partial<DoctorProfile>, updatedBy: string) {
-    this.data.doctorProfile = {
-      ...this.data.doctorProfile,
+  public async updateDoctorProfile(
+    profile: Partial<DoctorProfile>,
+    updatedBy: string
+  ): Promise<DoctorProfile> {
+    const ref = firestore().collection(COL.doctorProfile).doc(DOCTOR_PROFILE_DOC_ID);
+    const current = (await ref.get()).data() as DoctorProfile | undefined;
+    const merged: DoctorProfile = {
+      ...(current || ({} as DoctorProfile)),
       ...profile,
       lastUpdatedBy: updatedBy,
       updatedAt: new Date().toISOString(),
-    };
-    this.save();
-    return this.data.doctorProfile;
+    } as DoctorProfile;
+    await ref.set(merged);
+    return merged;
   }
 
-  public getReviews(includeUnapproved = false) {
-    return this.data.reviews
+  public async getReviews(includeUnapproved = false): Promise<Review[]> {
+    const snap = await firestore().collection(COL.reviews).get();
+    return snap.docs
+      .map(d => d.data() as Review)
       .filter(r => includeUnapproved || r.isApproved)
-      .sort((a, b) => a.order - b.order);
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
   }
 
-  public createReview(review: Omit<Review, 'id' | 'createdAt'>) {
-    const newReview: Review = {
-      ...review,
-      id: `rev_${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    this.data.reviews.push(newReview);
-    this.save();
+  public async createReview(review: Omit<Review, 'id' | 'createdAt'>): Promise<Review> {
+    const id = `rev_${Date.now()}`;
+    const newReview: Review = { ...review, id, createdAt: new Date().toISOString() } as Review;
+    await firestore().collection(COL.reviews).doc(id).set(newReview);
     return newReview;
   }
 
-  public updateReviewApproval(id: string, isApproved: boolean, isFeatured = false) {
-    const idx = this.data.reviews.findIndex(r => r.id === id);
-    if (idx === -1) return null;
-    this.data.reviews[idx].isApproved = isApproved;
-    this.data.reviews[idx].isFeatured = isFeatured;
-    this.save();
-    return this.data.reviews[idx];
+  public async updateReviewApproval(
+    id: string,
+    isApproved: boolean,
+    isFeatured = false
+  ): Promise<Review | null> {
+    const ref = firestore().collection(COL.reviews).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    await ref.update({ isApproved, isFeatured });
+    return (await ref.get()).data() as Review;
   }
 
-  public deleteReview(id: string) {
-    const idx = this.data.reviews.findIndex(r => r.id === id);
-    if (idx === -1) return false;
-    this.data.reviews.splice(idx, 1);
-    this.save();
+  public async deleteReview(id: string): Promise<boolean> {
+    const ref = firestore().collection(COL.reviews).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return false;
+    await ref.delete();
     return true;
   }
 
-  public getFaqs(includeUnapproved = false) {
-    return this.data.faqs
+  public async getFaqs(includeUnapproved = false): Promise<FAQItem[]> {
+    const snap = await firestore().collection(COL.faqs).get();
+    return snap.docs
+      .map(d => d.data() as FAQItem)
       .filter(f => includeUnapproved || f.isApproved)
-      .sort((a, b) => a.order - b.order);
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
   }
 
-  public createFaq(faq: Omit<FAQItem, 'id' | 'createdAt'>) {
-    const newFaq: FAQItem = {
-      ...faq,
-      id: `faq_${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    this.data.faqs.push(newFaq);
-    this.save();
+  public async createFaq(faq: Omit<FAQItem, 'id' | 'createdAt'>): Promise<FAQItem> {
+    const id = `faq_${Date.now()}`;
+    const newFaq: FAQItem = { ...faq, id, createdAt: new Date().toISOString() } as FAQItem;
+    await firestore().collection(COL.faqs).doc(id).set(newFaq);
     return newFaq;
   }
 
-  public updateFaq(id: string, updates: Partial<FAQItem>) {
-    const idx = this.data.faqs.findIndex(f => f.id === id);
-    if (idx === -1) return null;
-    this.data.faqs[idx] = { ...this.data.faqs[idx], ...updates };
-    this.save();
-    return this.data.faqs[idx];
+  public async updateFaq(id: string, updates: Partial<FAQItem>): Promise<FAQItem | null> {
+    const ref = firestore().collection(COL.faqs).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    const clean: any = { ...updates };
+    delete clean.id;
+    await ref.update(clean);
+    return (await ref.get()).data() as FAQItem;
   }
 
-  public deleteFaq(id: string) {
-    const idx = this.data.faqs.findIndex(f => f.id === id);
-    if (idx === -1) return false;
-    this.data.faqs.splice(idx, 1);
-    this.save();
+  public async deleteFaq(id: string): Promise<boolean> {
+    const ref = firestore().collection(COL.faqs).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return false;
+    await ref.delete();
     return true;
   }
 
-  public getAnnouncements(activeOnly = true) {
-    return this.data.announcements.filter(a => !activeOnly || a.isActive);
+  public async getAnnouncements(activeOnly = true): Promise<Announcement[]> {
+    const snap = await firestore().collection(COL.announcements).get();
+    return snap.docs
+      .map(d => d.data() as Announcement)
+      .filter(a => !activeOnly || a.isActive);
   }
 
-  public updateAnnouncement(id: string, updates: Partial<Announcement>) {
-    const idx = this.data.announcements.findIndex(a => a.id === id);
-    if (idx === -1) return null;
-    this.data.announcements[idx] = { ...this.data.announcements[idx], ...updates };
-    this.save();
-    return this.data.announcements[idx];
+  public async updateAnnouncement(
+    id: string,
+    updates: Partial<Announcement>
+  ): Promise<Announcement | null> {
+    const ref = firestore().collection(COL.announcements).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    const clean: any = { ...updates };
+    delete clean.id;
+    await ref.update(clean);
+    return (await ref.get()).data() as Announcement;
   }
 
-  // Audit Logs & Notifications
-  public getAuditLogs(limit = 100) {
-    return this.data.auditLogs.slice(0, limit);
+  // ----------------- AUDIT LOGS & NOTIFICATIONS -----------------
+  public async getAuditLogs(limit = 100): Promise<AuditLog[]> {
+    const snap = await firestore()
+      .collection(COL.auditLogs)
+      .orderBy('timestamp', 'desc')
+      .limit(limit)
+      .get();
+    return snap.docs.map(d => {
+      const data = d.data() as any;
+      return { ...data, id: d.id, timestamp: toIso(data.timestamp) } as AuditLog;
+    });
   }
 
-  public getNotifications(limit = 100) {
-    return this.data.notifications.slice(0, limit);
+  public async getNotifications(limit = 100): Promise<NotificationRecord[]> {
+    const snap = await firestore()
+      .collection(COL.notifications)
+      .orderBy('createdAt', 'desc')
+      .limit(limit)
+      .get();
+    return snap.docs.map(d => {
+      const data = d.data() as any;
+      return { ...data, id: d.id, createdAt: toIso(data.createdAt) } as NotificationRecord;
+    });
   }
 
-  public createNotification(data: Omit<NotificationRecord, 'id' | 'status' | 'createdAt'>) {
+  public async createNotification(
+    data: Omit<NotificationRecord, 'id' | 'status' | 'createdAt'>
+  ): Promise<NotificationRecord> {
+    const id = `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const record: NotificationRecord = {
       ...data,
-      id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      status: 'delivered', // Delivered via mock provider architecture
+      id,
+      status: 'delivered',
       createdAt: new Date().toISOString(),
-    };
-    this.data.notifications.unshift(record);
-    if (this.data.notifications.length > 300) {
-      this.data.notifications = this.data.notifications.slice(0, 300);
-    }
-    this.save();
+    } as NotificationRecord;
+    await firestore().collection(COL.notifications).doc(id).set(record);
     return record;
   }
+
+  // ----------------- FIREBASE AUTH HELPERS (server-side) -----------------
+  public async createAuthUser(opts: {
+    email: string;
+    password: string;
+    displayName?: string;
+  }): Promise<string> {
+    const userRecord = await firebaseAuth().createUser({
+      email: opts.email,
+      password: opts.password,
+      displayName: opts.displayName,
+    });
+    return userRecord.uid;
+  }
+
+  public async setAuthUserRole(uid: string, role: string): Promise<void> {
+    await firebaseAuth().setCustomUserClaims(uid, { role });
+  }
 }
+
+// Suppress unused-var warning for writeAny if not used
+void writeAny;
+void ts;
 
 export const db = new ClinicDatabase();

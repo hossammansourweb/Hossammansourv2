@@ -1,0 +1,96 @@
+rules_version = '2';
+
+// The Express server talks to Firestore via the Admin SDK (server credentials),
+// which ALWAYS bypasses these rules. These rules govern what a signed-in
+// browser client may read/write directly — apply least privilege.
+//
+// Read model:
+//   - Reference content the public site shows is world-readable.
+//   - A user may read their own profile; staff may read all users.
+//
+// Write model:
+//   - Only staff (super_admin / receptionist / content_editor) may create or
+//     modify business/content data. Bookings and reviews are created through
+//     the Express API (Admin SDK), so most writes live server-side.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Reference content (public site) ----------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function role() {
+      return request.auth.token.role;
+    }
+    function isStaff() {
+      return isSignedIn() && role() in ['super_admin', 'receptionist', 'content_editor'];
+    }
+    function isSuperAdmin() {
+      return isSignedIn() && role() == 'super_admin';
+    }
+    function isOwnUser(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Public reading of anything a visitor sees.
+    match /branches/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+    match /services/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+    match /doctorProfile/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+    match /workingHours/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+    match /scheduleExceptions/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+    match /faqs/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+    match /announcements/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+    match /reviews/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    // Appointments: only staff manage them (client mainly reads via API).
+    match /appointments/{id} {
+      allow read: if isStaff() || isOwnUser(resource.data.patientId);
+      allow write: if isStaff();
+    }
+
+    // Users: read your own profile, staff can manage; never expose writes to patients.
+    match /users/{uid} {
+      allow read: if isStaff() || isOwnUser(uid);
+      allow create, update: if isStaff();
+      allow delete: if isSuperAdmin();
+    }
+
+    // Sensitive admin records — not meant for browser clients at all.
+    match /auditLogs/{id} {
+      allow read, write: if isSuperAdmin();
+    }
+    match /notifications/{id} {
+      allow read: if isStaff();
+      allow write: if isStaff();
+    }
+
+    // Deny by default for anything else.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,4 +1,19 @@
 import {
+  initializeApp,
+  getApps,
+  type FirebaseApp,
+} from 'firebase/app';
+import {
+  getAuth,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut as fbSignOut,
+  onAuthStateChanged,
+  type Auth,
+  type User as FirebaseUser,
+} from 'firebase/auth';
+import firebaseConfig from './firebaseClient';
+import {
   User,
   Branch,
   MedicalService,
@@ -17,16 +32,63 @@ import {
 
 const API_BASE = '/api';
 
-function getAuthHeader(): Record<string, string> {
-  const token = localStorage.getItem('clinic_auth_token');
+// Initialize Firebase client app (singleton)
+let app: FirebaseApp | null = null;
+let auth: Auth | null = null;
+
+function getApp(): FirebaseApp {
+  if (!app) {
+    app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+  }
+  return app;
+}
+
+function getAuthClient(): Auth {
+  if (!auth) auth = getAuth(getApp());
+  return auth;
+}
+
+export { getApp as getFirebaseApp, getAuthClient as getFirebaseAuth };
+
+// Track current Firebase user globally for getAuthHeader
+let currentUser: FirebaseUser | null = null;
+let currentToken: string | null = null;
+let currentTokenExpires = 0;
+
+onAuthStateChanged(getAuthClient(), async user => {
+  currentUser = user;
+  if (user) {
+    currentToken = await user.getIdToken();
+    currentTokenExpires = Date.now() + 50 * 60 * 1000; // refresh ~10 min before the hour
+  } else {
+    currentToken = null;
+    currentTokenExpires = 0;
+  }
+});
+
+async function getIdToken(): Promise<string | null> {
+  if (!currentUser) return null;
+  if (!currentToken || Date.now() > currentTokenExpires - 60_000) {
+    try {
+      currentToken = await currentUser.getIdToken(true);
+      currentTokenExpires = Date.now() + 50 * 60 * 1000;
+    } catch {
+      return null;
+    }
+  }
+  return currentToken;
+}
+
+async function getAuthHeader(): Promise<Record<string, string>> {
+  const token = await getIdToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const headers = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...getAuthHeader(),
-    ...options.headers,
+    ...(await getAuthHeader()),
+    ...(options.headers as Record<string, string> | undefined),
   };
 
   try {
@@ -51,15 +113,51 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       throw new Error(data.message || 'حدث خطأ في الاتصال بالخادم.');
     }
 
-    return data;
+    return data as T;
   } catch (error: any) {
     console.error(`[API Request Error ${endpoint}]:`, error);
     throw error;
   }
 }
 
+// Resolve the Firebase Auth email for a phone-or-email identifier.
+// If the user enters a phone, we look it up against the local mirror via /api/auth/login
+// (which does NOT verify the password and only resolves an email/uid).
+async function resolveAuthEmail(identifier: string): Promise<string> {
+  if (identifier.includes('@')) return identifier.trim();
+  const res = await request<{ success: boolean; data: { email: string } }>(
+    '/auth/login',
+    {
+      method: 'POST',
+      body: JSON.stringify({ identifier }),
+    }
+  );
+  if (!res.success || !res.data?.email) {
+    throw new Error('تعذر العثور على حساب مرتبط بهذا الرقم.');
+  }
+  return res.data.email;
+}
+
 export const api = {
-  // Public
+  // ---------- Firebase Auth helpers (client-side) ----------
+  signInWithEmailAndPassword: (email: string, password: string) =>
+    signInWithEmailAndPassword(getAuthClient(), email, password),
+
+  createUserWithEmailAndPassword: (email: string, password: string) =>
+    createUserWithEmailAndPassword(getAuthClient(), email, password),
+
+  signOut: () => fbSignOut(getAuthClient()),
+
+  getCurrentUser: () => currentUser,
+
+  onAuthStateChanged: (cb: (u: FirebaseUser | null) => void) =>
+    onAuthStateChanged(getAuthClient(), cb),
+
+  getIdToken: () => getIdToken(),
+
+  resolveAuthEmail: (identifier: string) => resolveAuthEmail(identifier),
+
+  // ---------- REST API surface (unchanged from before) ----------
   getClinicInfo: () =>
     request<{
       success: boolean;
@@ -110,7 +208,7 @@ export const api = {
     body: JSON.stringify(payload),
   }),
 
-  // Auth
+  // Auth — server-side profile + Firebase Auth (used together by the modal)
   register: (payload: {
     name: string;
     phone: string;
@@ -124,7 +222,7 @@ export const api = {
   }),
 
   login: (identifier: string, password: string) =>
-    request<{ success: boolean; message: string; data: { user: User; token: string } }>('/auth/login', {
+    request<{ success: boolean; message: string; data: { email: string; user: User } }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ identifier, password }),
     }),
