@@ -49,6 +49,13 @@ function MainApp() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white text-slate-900 dark:bg-[#0B252C] dark:text-slate-100 transition-colors selection:bg-teal-500 selection:text-white font-sans" dir="rtl">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:right-4 focus:top-4 focus:z-[60] focus:rounded-xl focus:bg-[#0E3847] focus:px-4 focus:py-3 focus:text-sm focus:font-bold focus:text-white"
+      >
+        الانتقال إلى المحتوى الرئيسي
+      </a>
+
       {/* Navigation Header */}
       <Navbar
         currentView={currentView}
@@ -57,7 +64,7 @@ function MainApp() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1">
+      <main id="main-content" className="flex-1 pb-20 md:pb-0">
         {currentView === 'home' && (
           <HomeView
             onNavigate={handleNavigate}

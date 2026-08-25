@@ -135,11 +135,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
   const activeAnnouncement = data.announcements?.find(a => a.isActive);
 
   return (
-    <div className="space-y-16 sm:space-y-24 pb-20 bg-white dark:bg-[#0B252C] transition-colors" dir="rtl">
+    <div className="space-y-14 sm:space-y-20 pb-28 bg-[#fbfdfd] dark:bg-[#0B252C] transition-colors" dir="rtl">
       {/* 1. Announcement Banner */}
       {activeAnnouncement && (
-        <div className="bg-[#0B3B46] dark:bg-[#07191E] text-white text-xs sm:text-sm py-2.5 px-4 shadow-xs">
+        <div className="bg-[#0B3B46] dark:bg-[#07191E] text-white text-xs sm:text-sm py-2.5 px-4 shadow-xs" role="status">
           <div className="max-w-7xl mx-auto flex items-center justify-center gap-2 text-center">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 shadow-[0_0_0_4px_rgba(110,231,183,0.12)] shrink-0" aria-hidden="true" />
             <Sparkles className="w-4 h-4 text-[#E05A47] shrink-0" />
             <span className="font-medium">{activeAnnouncement.message}</span>
           </div>
@@ -147,11 +148,21 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
       )}
 
       {/* 2. Hero Section (Matches Screenshot 1 & 2) */}
-      <section className="relative pt-6 sm:pt-12 pb-8 overflow-hidden hero-grid-pattern bg-white dark:bg-[#0B252C]">
+      <section className="relative pt-8 sm:pt-16 pb-10 sm:pb-14 overflow-hidden hero-grid-pattern hero-glow bg-[#fbfdfd] dark:bg-[#0B252C]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
             {/* Right Text Column (RTL Lead) */}
             <div className="lg:col-span-7 space-y-6 sm:space-y-7 text-right">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] sm:text-xs font-bold text-slate-600 dark:text-slate-300">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-100 bg-teal-50 px-3 py-1.5 text-teal-800 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-200">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  حجز إلكتروني منظم
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 dark:border-[#1F4E5A] dark:bg-[#10333C]/80">
+                  <MapPin className="w-3.5 h-3.5 text-[#E05A47]" />
+                  طنطا وزفتى
+                </span>
+              </div>
               {/* Category Tag with accent line */}
               <div className="inline-flex items-center gap-2 text-xs sm:text-sm font-bold text-[#0E3847] dark:text-teal-300">
                 <span>رعاية عظام منظمة وقريبة منك</span>
@@ -160,15 +171,15 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
 
               {/* Main Headline */}
               <div className="space-y-1.5">
-                <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-[#0E3847] dark:text-white leading-[1.18]">
+                <h1 className="text-5xl sm:text-7xl font-extrabold tracking-tight text-[#0E3847] dark:text-white leading-[1.1]">
                   موعد واضح.
                 </h1>
-                <h2 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-[#E05A47] leading-[1.18]">
+                <h2 className="text-5xl sm:text-7xl font-extrabold tracking-tight text-[#E05A47] leading-[1.1]">
                   خطوة مطمئنة.
                 </h2>
               </div>
 
-              <p className="text-sm sm:text-base text-slate-700 dark:text-slate-200 leading-relaxed max-w-xl font-normal">
+              <p className="text-sm sm:text-lg text-slate-700 dark:text-slate-200 leading-8 max-w-xl font-normal">
                 منصة العيادة تساعدك على مراجعة المعلومات العملية، اختيار الفرع والوقت المتاح، ثم متابعة موعدك من حسابك.
               </p>
 
@@ -178,10 +189,10 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
                   type="button"
                   id="hero-book-btn"
                   onClick={() => onNavigate('booking')}
-                  className="px-7 py-3.5 rounded-2xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-sm sm:text-base shadow-lg shadow-[#E05A47]/30 transition-all flex items-center gap-2.5 active:scale-98 cursor-pointer"
+                  className="group px-7 py-3.5 rounded-2xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-sm sm:text-base shadow-lg shadow-[#E05A47]/30 transition-all flex items-center gap-2.5 active:scale-95 cursor-pointer"
                 >
                   <span>احجز موعدك الآن</span>
-                  <ChevronLeft className="w-5 h-5" />
+                  <ChevronLeft className="w-5 h-5 transition-transform group-hover:-translate-x-1" />
                 </button>
                 <button
                   type="button"
@@ -194,7 +205,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
               </div>
 
               {/* Trust Box (Matches Screenshot 1 & 2 Trust Badge) */}
-              <div className="p-4 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/90 dark:border-[#17424C] shadow-xs flex items-center gap-3.5 max-w-lg mt-6">
+              <div className="p-4 rounded-2xl bg-white/90 dark:bg-[#10333C]/90 border border-slate-200/90 dark:border-[#17424C] shadow-[0_12px_30px_rgba(14,56,71,0.07)] flex items-center gap-3.5 max-w-lg mt-6 backdrop-blur-sm">
                 <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-[#16424D] border border-teal-100 dark:border-teal-900/60 flex items-center justify-center text-teal-700 dark:text-teal-300 shrink-0">
                   <Shield className="w-5 h-5" />
                 </div>
@@ -224,7 +235,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
                 </div>
 
                 {/* Doctor Arch Frame */}
-                <div className="relative rounded-t-[140px] sm:rounded-t-[180px] rounded-b-3xl overflow-hidden bg-linear-to-b from-[#E6F4F7] to-[#C8E8EE] dark:from-[#123842] dark:to-[#0B252C] border-2 border-teal-600/20 dark:border-teal-500/30 shadow-2xl">
+                <div className="relative rounded-t-[140px] sm:rounded-t-[180px] rounded-b-3xl overflow-hidden bg-linear-to-b from-[#E6F4F7] to-[#C8E8EE] dark:from-[#123842] dark:to-[#0B252C] border-2 border-teal-600/20 dark:border-teal-500/30 shadow-2xl ring-8 ring-white/70 dark:ring-[#10333C]/40">
                   <img
                     src={doctorPortrait}
                     alt="د. حسام منصور أبوكل"
@@ -250,8 +261,8 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
 
       {/* 3. Steps Navigation Bar (01 اختر الخدمة / 02 حدّد الفرع / 03 أكد موعدك) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="p-4 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs flex items-center gap-3 text-right">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-2 rounded-3xl bg-teal-50/70 dark:bg-[#10333C]/60 border border-teal-100/80 dark:border-[#17424C]">
+          <div className="surface-card p-4 rounded-2xl flex items-center gap-3 text-right">
             <span className="text-lg font-extrabold text-[#E05A47] font-mono">01</span>
             <div>
               <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">اختر الخدمة</h4>
@@ -259,7 +270,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs flex items-center gap-3 text-right">
+          <div className="surface-card p-4 rounded-2xl flex items-center gap-3 text-right">
             <span className="text-lg font-extrabold text-[#E05A47] font-mono">02</span>
             <div>
               <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">حدّد الفرع</h4>
@@ -267,7 +278,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs flex items-center gap-3 text-right">
+          <div className="surface-card p-4 rounded-2xl flex items-center gap-3 text-right">
             <span className="text-lg font-extrabold text-[#E05A47] font-mono">03</span>
             <div>
               <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">أكد موعدك</h4>
@@ -279,7 +290,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
 
        {/* 4. About Doctor Section (Matches Screenshot 1 & 2) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="p-8 sm:p-10 rounded-3xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs text-right space-y-4">
+        <div className="section-shell p-7 sm:p-10 rounded-3xl text-right space-y-4">
           <div className="inline-flex items-center gap-2 text-xs font-bold text-[#E05A47]">
             <span className="w-2 h-2 rounded-full bg-[#E05A47]" />
             <span>عن الدكتور والعيادة</span>
@@ -337,7 +348,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
           {(data.services || []).slice(0, 6).map((service, idx) => (
             <div
               key={service.id}
-              className="p-6 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs hover:shadow-md transition-all text-right flex flex-col justify-between space-y-4"
+              className="surface-card p-6 rounded-2xl text-right flex flex-col justify-between space-y-4"
             >
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -395,7 +406,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="p-6 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs text-right space-y-2">
+          <div className="surface-card p-6 rounded-2xl text-right space-y-2">
             <span className="text-lg font-extrabold text-[#E05A47] font-mono block mb-2">01</span>
             <h3 className="text-sm font-bold text-slate-900 dark:text-white">
               اختيار الخدمة والفرع
@@ -405,7 +416,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
             </p>
           </div>
 
-          <div className="p-6 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs text-right space-y-2">
+          <div className="surface-card p-6 rounded-2xl text-right space-y-2">
             <span className="text-lg font-extrabold text-[#E05A47] font-mono block mb-2">02</span>
             <h3 className="text-sm font-bold text-slate-900 dark:text-white">
               تحديد الوقت وإدخال البيانات
@@ -415,7 +426,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
             </p>
           </div>
 
-          <div className="p-6 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs text-right space-y-2">
+          <div className="surface-card p-6 rounded-2xl text-right space-y-2">
             <span className="text-lg font-extrabold text-[#E05A47] font-mono block mb-2">03</span>
             <h3 className="text-sm font-bold text-slate-900 dark:text-white">
               تأكيد الموعد والمتابعة
@@ -443,7 +454,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
           {(data.branches || []).map(branch => (
             <div
               key={branch.id}
-              className="p-6 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs text-right space-y-4"
+              className="surface-card p-6 rounded-2xl text-right space-y-4"
             >
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#17424C]">
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">
@@ -521,7 +532,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
             return (
               <div
                 key={faq.id}
-                className="rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] overflow-hidden shadow-2xs transition-colors"
+                className="surface-card rounded-2xl overflow-hidden"
               >
                 <button
                   type="button"
@@ -548,7 +559,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
 
       {/* 9. Clean CTA Bottom Banner */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="rounded-3xl bg-[#0E3847] dark:bg-[#10333C] text-white p-8 sm:p-10 text-center space-y-5 shadow-lg border border-teal-900/40 dark:border-[#1A4B56]">
+        <div className="relative overflow-hidden rounded-3xl bg-linear-to-br from-[#0E3847] via-[#114956] to-[#0B303A] dark:from-[#10333C] dark:to-[#0B252C] text-white p-8 sm:p-12 text-center space-y-5 shadow-xl border border-teal-900/40 dark:border-[#1A4B56]">
+          <div className="absolute -left-16 -top-20 w-56 h-56 rounded-full border border-white/10" aria-hidden="true" />
+          <div className="absolute -right-24 -bottom-28 w-72 h-72 rounded-full border border-[#E05A47]/25" aria-hidden="true" />
           <h2 className="text-2xl sm:text-3xl font-extrabold">
             جاهز لحجز موعدك الطبي؟
           </h2>

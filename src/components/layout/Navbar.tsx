@@ -64,9 +64,9 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
       </div>
 
       {/* 2. Main Clean Navbar (Matches Screenshot 1 & 2) */}
-      <header className="sticky top-0 z-40 w-full bg-white/95 dark:bg-[#0E2C33]/95 backdrop-blur-md border-b border-slate-100 dark:border-[#17424C] transition-colors shadow-2xs">
+      <header className="sticky top-0 z-40 w-full bg-white/92 dark:bg-[#0E2C33]/92 backdrop-blur-xl border-b border-slate-100/90 dark:border-[#17424C] transition-colors shadow-[0_6px_24px_rgba(14,56,71,0.06)]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-20">
+          <div className="flex items-center justify-between h-[4.5rem] sm:h-20">
             {/* Left Controls: Menu button + Theme toggle (in RTL, this appears on the visual left) */}
             <div className="flex items-center gap-2 sm:gap-3">
               {/* Menu button with border and text (Matches screenshot) */}
@@ -104,9 +104,10 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
                   <button
                     key={link.id}
                     onClick={() => handleLinkClick(link.id)}
-                    className={`px-3 py-2 rounded-xl text-sm font-semibold transition-all ${
+                    aria-current={isActive ? 'page' : undefined}
+                    className={`relative px-3 py-2 rounded-xl text-sm font-semibold transition-all ${
                       isActive
-                        ? 'text-[#E05A47] dark:text-[#f27463] bg-[#E05A47]/10 dark:bg-[#E05A47]/20 font-bold'
+                        ? 'text-[#E05A47] dark:text-[#f27463] bg-[#E05A47]/10 dark:bg-[#E05A47]/20 font-bold after:absolute after:inset-x-3 after:-bottom-0.5 after:h-0.5 after:rounded-full after:bg-[#E05A47]'
                         : 'text-slate-600 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#123842]'
                     }`}
                   >
