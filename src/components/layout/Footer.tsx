@@ -1,5 +1,6 @@
 import React from 'react';
 import { Phone, MapPin, Calendar, MessageCircle, Instagram, ShieldCheck } from 'lucide-react';
+import logo from '../../assets/images/logo.png';
 
 interface FooterProps {
   onNavigate: (view: string) => void;
@@ -13,10 +14,14 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
         <div className="flex flex-col md:flex-row items-center justify-between gap-6 pb-8 border-b border-[#0B3B46]">
           {/* Right: Doctor Branding & Logo */}
           <div className="flex items-center gap-3.5">
-            <div className="w-11 h-11 rounded-full bg-[#0B3B46] border border-teal-500/30 flex items-center justify-center">
-              <div className="w-7 h-7 rounded-full border-2 border-t-white border-r-[#E05A47] border-b-white border-l-white flex items-center justify-center">
-                <div className="w-2 h-2 rounded-full bg-[#E05A47]" />
-              </div>
+            <div className="w-12 h-12 rounded-full bg-white dark:bg-[#0B3B46]/40 border border-teal-500/20 dark:border-teal-400/20 flex items-center justify-center overflow-hidden ring-1 ring-white/20 dark:ring-teal-300/10">
+              <img
+                src={logo}
+                alt="شعار عيادة د. حسام منصور أبوكل"
+                className="w-full h-full object-contain p-0.5"
+                loading="lazy"
+                decoding="async"
+              />
             </div>
             <div className="text-right">
               <h3 className="text-lg font-bold text-white tracking-tight">

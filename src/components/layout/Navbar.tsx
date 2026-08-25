@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext.tsx';
 import { useTheme } from '../../context/ThemeContext.tsx';
+import logo from '../../assets/images/logo.png';
 import {
   Calendar,
   User,
@@ -83,11 +84,15 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
                 </p>
               </div>
 
-              {/* Logo Spiral / Medical Icon */}
-              <div className="relative w-10 h-10 rounded-full bg-slate-50 dark:bg-[#123842] border border-slate-200/80 dark:border-[#1F4E5A] flex items-center justify-center overflow-hidden shadow-2xs group-hover:scale-105 transition-transform">
-                <div className="w-7 h-7 rounded-full border-2 border-t-[#0B3B46] border-r-[#E05A47] border-b-[#0B3B46] border-l-[#0B3B46] dark:border-t-teal-400 dark:border-r-[#E05A47] dark:border-b-teal-400 dark:border-l-teal-400 flex items-center justify-center">
-                  <div className="w-2 h-2 rounded-full bg-[#E05A47]" />
-                </div>
+              {/* Clinic Logo (real PNG asset) */}
+              <div className="relative w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-white dark:bg-[#123842] border border-slate-200/80 dark:border-[#1F4E5A] flex items-center justify-center overflow-hidden shadow-2xs group-hover:scale-105 transition-transform ring-1 ring-teal-500/10 dark:ring-teal-400/10">
+                <img
+                  src={logo}
+                  alt="شعار عيادة د. حسام منصور أبوكل"
+                  className="w-full h-full object-contain p-0.5"
+                  loading="eager"
+                  decoding="async"
+                />
               </div>
             </div>
 
