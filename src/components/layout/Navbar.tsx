@@ -138,6 +138,17 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
                   <Moon className="w-4.5 h-4.5 text-slate-700" />
                 )}
               </button>
+
+              {/* Register button - desktop only */}
+              <button
+                type="button"
+                onClick={() => onOpenAuth('register')}
+                className="lg:flex lg:items-center lg:justify-center hidden w-10 h-10 rounded-full border border-slate-200 dark:border-[#1F4E5A] bg-white dark:bg-[#123842] hover:bg-slate-50 dark:hover:bg-[#184854] text-slate-700 dark:text-slate-200 flex items-center justify-center shadow-2xs transition-colors cursor-pointer"
+                aria-label="إنشاء حساب"
+                title="إنشاء حساب"
+              >
+                <User className="w-4.5 h-4.5 text-slate-600 dark:text-slate-300" />
+              </button>
             </div>
           </div>
         </div>
