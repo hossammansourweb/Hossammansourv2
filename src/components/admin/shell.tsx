@@ -335,7 +335,7 @@ function Header({
   const title = page?.label || 'لوحة الإدارة';
 
   return (
-    <header className="sticky top-0 z-50 w-full bg-white/92 dark:bg-[#0E2C33]/92 backdrop-blur-xl border-b border-slate-200 dark:border-[#17424C] px-3 sm:px-6 h-16 flex items-center gap-2 sm:gap-3">
+    <header className="sticky top-0 z-50 w-full bg-white/92 dark:bg-[#0E2C33]/92 border-b border-slate-200 dark:border-[#17424C] px-3 sm:px-6 h-16 flex items-center gap-2 sm:gap-3">
       <MobileDrawer current={current} onNavigate={onNavigate} />
 
       <div className="min-w-0 flex-1">

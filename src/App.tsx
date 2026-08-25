@@ -144,14 +144,16 @@ function MainApp() {
       </main>
 
       {/* Medical Platform Footer */}
-      <Footer onNavigate={handleNavigate} />
+      {currentView !== 'admin' && <Footer onNavigate={handleNavigate} />}
 
       {/* Mobile Fixed Bottom Bar */}
-      <MobileBottomNav
-        currentView={currentView}
-        onNavigate={handleNavigate}
-        onOpenAuth={handleOpenAuth}
-      />
+      {currentView !== 'admin' && (
+        <MobileBottomNav
+          currentView={currentView}
+          onNavigate={handleNavigate}
+          onOpenAuth={handleOpenAuth}
+        />
+      )}
 
       {/* Unified Auth Modal */}
       <AuthModal
