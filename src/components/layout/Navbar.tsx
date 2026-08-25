@@ -118,7 +118,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
             </nav>
 
             {/* Left Controls: Menu button + Theme toggle */}
-            <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 sm:gap-3" dir="ltr">
               {/* Mobile menu button - icon only on mobile, hidden on desktop */}
               <button
                 type="button"

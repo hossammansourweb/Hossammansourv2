@@ -43,6 +43,15 @@
       "gender": "male",
       "age": 38,
       "createdAt": "2026-01-10T10:00:00.000Z"
+    },
+    {
+      "id": "usr_1787668248300_ujdj0",
+      "name": "اسلام",
+      "phone": "0102010212",
+      "email": "eslam@gmail.com",
+      "role": "patient",
+      "passwordHash": "$2b$10$bvwI1N3aJGhGYYhP1l8YheirBEWtZUsBP53w8jYKMkZNUWFkBSTha",
+      "createdAt": "2026-08-25T14:30:48.300Z"
     }
   ],
   "branches": [
@@ -217,6 +226,27 @@
       "notes": "آلام أسفل الظهر تمتد للساق اليمنى.",
       "createdAt": "2026-08-22T14:00:00.000Z",
       "updatedAt": "2026-08-22T14:00:00.000Z"
+    },
+    {
+      "id": "apt_1787668293924_p0hi",
+      "bookingNumber": "HM-2026-7287",
+      "patientId": "usr_1787668248300_ujdj0",
+      "patientName": "اسلام",
+      "patientPhone": "01020102129",
+      "patientEmail": "eslam@gmail.com",
+      "patientAge": 30,
+      "patientGender": "male",
+      "serviceId": "srv_arthroscopy",
+      "serviceName": "مناظير المفاصل وإصابات الملاعب",
+      "branchId": "br_zefta",
+      "branchName": "فرع زفتى",
+      "appointmentDate": "2026-08-25",
+      "appointmentTime": "17:25",
+      "confirmationMethod": "whatsapp",
+      "status": "cancelled",
+      "createdAt": "2026-08-25T14:31:33.924Z",
+      "updatedAt": "2026-08-25T14:32:19.897Z",
+      "cancellationReason": "إلغاء بواسطة المريض"
     }
   ],
   "workingHours": [
@@ -541,6 +571,39 @@
   ],
   "auditLogs": [
     {
+      "id": "log_1787668339898_oe5mu",
+      "userId": "usr_1787668248300_ujdj0",
+      "userName": "اسلام",
+      "userRole": "patient",
+      "action": "PATIENT_CANCEL_APPOINTMENT",
+      "entityType": "Appointment",
+      "entityId": "apt_1787668293924_p0hi",
+      "details": "قام المريض بإلغاء الحجز رقم HM-2026-7287. السبب: غير محدد",
+      "timestamp": "2026-08-25T14:32:19.898Z"
+    },
+    {
+      "id": "log_1787668293925_9sa2i",
+      "userId": "usr_1787668248300_ujdj0",
+      "userName": "اسلام",
+      "userRole": "patient",
+      "action": "CREATE_APPOINTMENT",
+      "entityType": "Appointment",
+      "entityId": "apt_1787668293924_p0hi",
+      "details": "حجز موعد كشف جديد برقم HM-2026-7287 في فرع زفتى بتاريخ 2026-08-25 الساعة 17:25",
+      "timestamp": "2026-08-25T14:31:33.925Z"
+    },
+    {
+      "id": "log_1787668248303_4pw4b",
+      "userId": "usr_1787668248300_ujdj0",
+      "userName": "اسلام",
+      "userRole": "patient",
+      "action": "USER_REGISTER",
+      "entityType": "User",
+      "entityId": "usr_1787668248300_ujdj0",
+      "details": "تسجيل حساب مريض جديد بالمنصة.",
+      "timestamp": "2026-08-25T14:30:48.303Z"
+    },
+    {
       "id": "log_init",
       "userId": "usr_super_admin",
       "userName": "د. حسام منصور أبو كحلة",
@@ -553,6 +616,28 @@
     }
   ],
   "notifications": [
+    {
+      "appointmentId": "apt_1787668293924_p0hi",
+      "recipientPhone": "01020102129",
+      "recipientEmail": "eslam@gmail.com",
+      "type": "cancellation",
+      "channel": "whatsapp",
+      "content": "تم إلغاء الموعد رقم (HM-2026-7287) في عيادة د. حسام منصور بناءً على طلبكم/الإدارة. سبب الإلغاء: إلغاء بواسطة المريض.",
+      "id": "notif_1787668339897_xrvo",
+      "status": "delivered",
+      "createdAt": "2026-08-25T14:32:19.897Z"
+    },
+    {
+      "appointmentId": "apt_1787668293924_p0hi",
+      "recipientPhone": "01020102129",
+      "recipientEmail": "eslam@gmail.com",
+      "type": "booking_confirmation",
+      "channel": "whatsapp",
+      "content": "تم تسجيل حجزك بنجاح في عيادة د. حسام منصور برقم (HM-2026-7287) بتاريخ 2026-08-25 الساعة 17:25 بـ فرع زفتى.",
+      "id": "notif_1787668293924_6fbe",
+      "status": "delivered",
+      "createdAt": "2026-08-25T14:31:33.924Z"
+    },
     {
       "id": "notif_1",
       "appointmentId": "apt_1001",
