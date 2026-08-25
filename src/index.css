@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
+@layer base {
+  :root {
+    --bg-main: #FFFFFF;
+    --bg-card: #FFFFFF;
+    --text-primary: #0E3847;
+    --text-body: #1E293B;
+    --border-color: #E2E8F0;
+  }
+
+  .dark, [data-theme="dark"] {
+    --bg-main: #0B252C;
+    --bg-card: #10333C;
+    --text-primary: #FFFFFF;
+    --text-body: #94A3B8;
+    --border-color: #17424C;
+  }
+
+  body {
+    font-family: 'Cairo', 'Tajawal', system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.01em;
+    background-color: var(--bg-main);
+    color: var(--text-body);
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Tajawal', 'Cairo', system-ui, -apple-system, sans-serif;
+    font-weight: 700;
+  }
+}
+
+/* Background grid pattern matching screenshots */
+.hero-grid-pattern {
+  background-size: 32px 32px;
+  background-image: 
+    linear-gradient(to right, rgba(14, 56, 71, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(14, 56, 71, 0.05) 1px, transparent 1px);
+}
+
+.dark .hero-grid-pattern, [data-theme="dark"] .hero-grid-pattern {
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+}
+
+/* Custom scrollbar for medical tables and calendar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
