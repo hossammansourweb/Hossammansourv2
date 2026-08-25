@@ -197,20 +197,8 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
 
           <div className="fixed inset-y-0 right-0 max-w-sm w-full bg-white dark:bg-[#0E2C33] shadow-2xl flex flex-col justify-between p-5 z-50 animate-in slide-in-from-right duration-200 border-l border-slate-200 dark:border-[#17424C]">
             <div className="space-y-6">
-              {/* Drawer Top Header */}
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-[#17424C]">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-teal-50 dark:bg-[#153E48] border border-teal-100 dark:border-teal-800 flex items-center justify-center">
-                    <span className="text-[#0E3847] dark:text-teal-300 font-bold text-sm">HM</span>
-                  </div>
-                  <div>
-                    <h3 className="font-extrabold text-[#0E3847] dark:text-white text-sm">
-                      عيادة د. حسام منصور
-                    </h3>
-                    <p className="text-[11px] text-slate-400">استشاري جراحة العظام والمفاصل</p>
-                  </div>
-                </div>
-
+              {/* Drawer Close Button */}
+              <div className="flex justify-end pb-4 border-b border-slate-100 dark:border-[#17424C]">
                 <button
                   type="button"
                   onClick={() => setDrawerOpen(false)}
@@ -219,37 +207,6 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
                   <X className="w-4 h-4" />
                 </button>
               </div>
-
-              {/* Theme Switch Item in Drawer */}
-              <button
-                type="button"
-                onClick={toggleTheme}
-                className="w-full flex items-center justify-between p-3.5 rounded-2xl border border-slate-200/80 dark:border-[#1A4550] bg-slate-50/50 dark:bg-[#123842] hover:bg-slate-100 dark:hover:bg-[#164450] transition-all text-right cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-600 dark:text-teal-300">
-                    {theme === 'dark' ? 'النهاري' : 'الليلي'}
-                  </span>
-                  <ChevronLeft className="w-4 h-4 text-slate-400" />
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
-                    <span className="block text-sm font-bold text-slate-900 dark:text-white">
-                      مظهر الموقع
-                    </span>
-                    <span className="block text-[11px] text-slate-400 dark:text-slate-300">
-                      {theme === 'dark' ? 'الوضع الليلي مفعّل' : 'الوضع النهاري مفعّل'}
-                    </span>
-                  </div>
-                  <div className="w-10 h-10 rounded-xl bg-white dark:bg-[#0E2C33] border border-slate-200 dark:border-[#1F4E5A] flex items-center justify-center text-slate-600 dark:text-amber-300 shadow-2xs">
-                    {theme === 'dark' ? (
-                      <Sun className="w-5 h-5 text-amber-300" />
-                    ) : (
-                      <Moon className="w-5 h-5 text-slate-700" />
-                    )}
-                  </div>
-                </div>
-              </button>
 
               {/* Menu Items List */}
               <div className="space-y-2">
