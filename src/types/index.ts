@@ -10,6 +10,7 @@ export interface User {
   age?: number;
   createdAt: string;
   lastLoginAt?: string;
+  isActive?: boolean;
 }
 
 export interface Branch {

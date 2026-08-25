@@ -7,12 +7,17 @@ import {
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import * as fs from 'fs';
+import * as path from 'path';
 
 // Initialize Firebase Admin SDK once.
 // Credentials are read from FIREBASE_SERVICE_ACCOUNT (JSON string) in production,
 // or from the local service-account JSON file during development.
 const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
 const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+const defaultServiceAccountPath = path.resolve(
+  process.cwd(),
+  'hossammansourweb-9489f-firebase-adminsdk-fbsvc-1b0dbe2bbd.json'
+);
 
 function loadCredentials() {
   if (serviceAccount) {
@@ -22,14 +27,17 @@ function loadCredentials() {
       throw new Error('FIREBASE_SERVICE_ACCOUNT is set but not valid JSON.');
     }
   }
-  if (serviceAccountPath) {
-    if (!fs.existsSync(serviceAccountPath)) {
-      throw new Error(`Service-account file not found at ${serviceAccountPath}`);
+  const credentialsPath = serviceAccountPath ||
+    (fs.existsSync(defaultServiceAccountPath) ? defaultServiceAccountPath : undefined);
+
+  if (credentialsPath) {
+    if (!fs.existsSync(credentialsPath)) {
+      throw new Error(`Service-account file not found at ${credentialsPath}`);
     }
     try {
-      return JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+      return JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
     } catch {
-      throw new Error(`FIREBASE_SERVICE_ACCOUNT_PATH is set but not valid JSON: ${serviceAccountPath}`);
+      throw new Error(`FIREBASE_SERVICE_ACCOUNT_PATH is set but not valid JSON: ${credentialsPath}`);
     }
   }
   throw new Error(

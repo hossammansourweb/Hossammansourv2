@@ -17,13 +17,16 @@ import { BranchesView } from './views/BranchesView.tsx';
 import { FaqView } from './views/FaqView.tsx';
 import { PoliciesView } from './views/PoliciesView.tsx';
 import { PatientPortalView } from './views/PatientPortalView.tsx';
-import { AdminDashboardView } from './views/AdminDashboardView.tsx';
+import { AdminApp, AdminPageKey } from './components/admin/shell.tsx';
 import { AuthModal } from './views/AuthModal.tsx';
 
 function MainApp() {
   const { user, isStaff } = useAuth();
 
-  // Navigation router state
+  // Admin navigation state - uses AdminPageKey from shell
+  const [adminPage, setAdminPage] = useState<AdminPageKey>('dashboard');
+
+  // Public app navigation state
   const [currentView, setCurrentView] = useState<string>('home');
   const [bookingParams, setBookingParams] = useState<{
     branchId?: string;
@@ -39,6 +42,12 @@ function MainApp() {
       setBookingParams(params);
     }
     setCurrentView(view);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleAdminNavigate = (page: AdminPageKey) => {
+    setAdminPage(page);
+    // Scroll to top when navigating within admin
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -65,6 +74,12 @@ function MainApp() {
 
       {/* Main Content Area */}
       <main id="main-content" className="flex-1 pb-20 md:pb-0">
+        {/* Admin Panel - renders AdminApp when staff and in admin section */}
+        {currentView === 'admin' && isStaff && (
+          <AdminApp page={adminPage} navigate={handleAdminNavigate} />
+        )}
+
+        {/* Public-facing Views */}
         {currentView === 'home' && (
           <HomeView
             onNavigate={handleNavigate}
@@ -108,26 +123,23 @@ function MainApp() {
           />
         )}
 
-        {currentView === 'admin' && (
-          isStaff ? (
-            <AdminDashboardView onNavigate={handleNavigate} />
-          ) : (
-            <div className="max-w-md mx-auto my-16 p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center space-y-4">
-              <h2 className="text-xl font-bold text-slate-900 dark:text-white font-tajawal">
-                منطقة مقيدة للطاقم الطبي والإداري
-              </h2>
-              <p className="text-xs text-slate-500">
-                يرجى تسجيل الدخول بحساب موظف استقبال أو استشاري للمتابعة.
-              </p>
-              <button
-                type="button"
-                onClick={() => handleOpenAuth('login')}
-                className="w-full py-3 rounded-xl bg-teal-600 text-white font-bold text-sm"
-              >
-                تسجيل الدخول للطاقم
-              </button>
-            </div>
-          )
+        {/* Staff not logged in - show restricted access message */}
+        {currentView === 'admin' && !isStaff && (
+          <div className="max-w-md mx-auto my-16 p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center space-y-4">
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white font-tajawal">
+              منطقة مقيدة للطاقم الطبي والإداري
+            </h2>
+            <p className="text-xs text-slate-500">
+              يرجى تسجيل الدخول بحساب موظف استقبال أو استشاري للمتابعة.
+            </p>
+            <button
+              type="button"
+              onClick={() => handleOpenAuth('login')}
+              className="w-full py-3 rounded-xl bg-teal-600 text-white font-bold text-sm"
+            >
+              تسجيل الدخول للطاقم
+            </button>
+          </div>
         )}
       </main>
 

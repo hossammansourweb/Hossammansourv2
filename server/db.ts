@@ -196,6 +196,16 @@ class ClinicDatabase {
     return safe as User;
   }
 
+  // Soft delete a patient (deactivate account)
+  public async deactivatePatient(id: string): Promise<User | null> {
+    const ref = firestore().collection(COL.users).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    await ref.update({ isActive: false, updatedAt: new Date().toISOString() });
+    const fresh = await ref.get();
+    return fresh.data() as User | null;
+  }
+
   // ----------------- BRANCHES -----------------
   public async getBranches(includeInactive = false): Promise<Branch[]> {
     const snap = await firestore().collection(COL.branches).get();
@@ -588,7 +598,7 @@ class ClinicDatabase {
       await this.createNotification({
         appointmentId: apt.id,
         recipientPhone: apt.patientPhone,
-        recipientEmail: apt.patientEmail,
+        ...(apt.patientEmail ? { recipientEmail: apt.patientEmail } : {}),
         type: 'booking_confirmation',
         channel: apt.confirmationMethod === 'sms' ? 'sms' : 'whatsapp',
         content: `تم تأكيد موعدك رسمياً في عيادة د. حسام منصور برقم (${apt.bookingNumber}) في ${apt.branchName} يوم ${apt.appointmentDate} في تمام ${apt.appointmentTime}. نتشرف بخدمتكم.`,
@@ -597,7 +607,7 @@ class ClinicDatabase {
       await this.createNotification({
         appointmentId: apt.id,
         recipientPhone: apt.patientPhone,
-        recipientEmail: apt.patientEmail,
+        ...(apt.patientEmail ? { recipientEmail: apt.patientEmail } : {}),
         type: 'cancellation',
         channel: apt.confirmationMethod === 'sms' ? 'sms' : 'whatsapp',
         content: `تم إلغاء الموعد رقم (${apt.bookingNumber}) في عيادة د. حسام منصور بناءً على طلبكم/الإدارة. سبب الإلغاء: ${reason || 'بناء على رغبة المريض'}.`,
@@ -871,8 +881,31 @@ class ClinicDatabase {
       status: 'delivered',
       createdAt: new Date().toISOString(),
     } as NotificationRecord;
-    await firestore().collection(COL.notifications).doc(id).set(record);
-    return record;
+    const cleanRecord = Object.fromEntries(
+      Object.entries(record).filter(([, value]) => value !== undefined)
+    ) as NotificationRecord;
+    await firestore().collection(COL.notifications).doc(id).set(cleanRecord);
+    return cleanRecord;
+  }
+
+  // ----------------- CMS HELPERS -----------------
+  public async updateReview(id: string, updates: Partial<Review>): Promise<Review | null> {
+    const ref = firestore().collection(COL.reviews).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    const clean: any = { ...updates };
+    delete clean.id;
+    await ref.update(clean);
+    const fresh = await ref.get();
+    return { ...fresh.data(), id: fresh.id } as Review;
+  }
+
+  public async deleteAnnouncement(id: string): Promise<boolean> {
+    const ref = firestore().collection(COL.announcements).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return false;
+    await ref.delete();
+    return true;
   }
 
   // ----------------- FIREBASE AUTH HELPERS (server-side) -----------------
@@ -891,6 +924,18 @@ class ClinicDatabase {
 
   public async setAuthUserRole(uid: string, role: string): Promise<void> {
     await firebaseAuth().setCustomUserClaims(uid, { role });
+  }
+
+  // ----------------- ADMIN USER MANAGEMENT -----------------
+  public async deleteUser(id: string): Promise<User | null> {
+    const ref = firestore().collection(COL.users).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    const data = doc.data() as User;
+    // Delete the Firebase Auth account too (best-effort)
+    try { await firebaseAuth().deleteUser(id); } catch { /* ignore */ }
+    await ref.delete();
+    return data;
   }
 }
 

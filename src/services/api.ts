@@ -257,7 +257,7 @@ export const api = {
     }),
 
   // Admin
-  getDashboardStats: () => request<{ success: boolean; data: DashboardStats }>('/admin/dashboard-stats'),
+  getDashboardStats: () => request<{ success: boolean; data: DashboardStats; message?: string }>('/admin/dashboard-stats'),
 
   getAdminAppointments: (params?: {
     branchId?: string;
@@ -274,7 +274,7 @@ export const api = {
     if (params?.dateFrom) q.append('dateFrom', params.dateFrom);
     if (params?.dateTo) q.append('dateTo', params.dateTo);
     if (params?.search) q.append('search', params.search);
-    return request<{ success: boolean; data: Appointment[] }>(`/admin/appointments?${q.toString()}`);
+    return request<{ success: boolean; data: Appointment[]; message?: string }>(`/admin/appointments?${q.toString()}`);
   },
 
   createAdminAppointment: (payload: any) =>
@@ -303,10 +303,15 @@ export const api = {
   },
 
   getAdminPatients: (search?: string) =>
-    request<{ success: boolean; data: any[] }>(`/admin/patients${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+    request<{ success: boolean; data: any[]; message?: string }>(`/admin/patients${search ? `?search=${encodeURIComponent(search)}` : ''}`),
 
   getPatientHistory: (phone: string) =>
     request<{ success: boolean; data: Appointment[] }>(`/admin/patients/${encodeURIComponent(phone)}/history`),
+
+  deactivatePatient: (id: string) =>
+    request<{ success: boolean; message: string; data: User }>(`/admin/patients/${id}`, {
+      method: 'DELETE',
+    }),
 
   // Schedule & Working Hours
   getWorkingHours: (branchId?: string) =>
@@ -333,7 +338,7 @@ export const api = {
     }),
 
   // Branches & Services
-  getAdminBranches: () => request<{ success: boolean; data: Branch[] }>('/admin/branches'),
+  getAdminBranches: () => request<{ success: boolean; data: Branch[]; message?: string }>('/admin/branches'),
   createBranch: (payload: Omit<Branch, 'id'>) =>
     request<{ success: boolean; message: string; data: Branch }>('/admin/branches', {
       method: 'POST',
@@ -349,7 +354,7 @@ export const api = {
       method: 'DELETE',
     }),
 
-  getAdminServices: () => request<{ success: boolean; data: MedicalService[] }>('/admin/services'),
+  getAdminServices: () => request<{ success: boolean; data: MedicalService[]; message?: string }>('/admin/services'),
   createService: (payload: Omit<MedicalService, 'id'>) =>
     request<{ success: boolean; message: string; data: MedicalService }>('/admin/services', {
       method: 'POST',
@@ -397,6 +402,46 @@ export const api = {
     }),
   deleteFaq: (id: string) =>
     request<{ success: boolean; message: string }>(`/admin/content/faqs/${id}`, {
+      method: 'DELETE',
+    }),
+
+  // Search endpoints — read-only, role-based access
+  searchAppointments: (params: {
+    q?: string;
+    status?: string;
+    branchId?: string;
+    serviceId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  }) =>
+    request<{ success: boolean; data: Appointment[] }>(`/search/appointments${new URLSearchParams(params).toString() ? `?${new URLSearchParams(params).toString()}` : ''}`),
+
+  searchPatients: (params: {
+    q?: string;
+  }) =>
+    request<{ success: boolean; data: any[] }>(`/search/patients${params.q ? `?q=${encodeURIComponent(params.q)}` : ''}`),
+
+  searchBranches: (params: {
+    q?: string;
+  }) =>
+    request<{ success: boolean; data: Branch[] }>(`/search/branches${params.q ? `?q=${encodeURIComponent(params.q)}` : ''}`),
+
+  searchServices: (params: {
+    q?: string;
+  }) =>
+    request<{ success: boolean; data: MedicalService[] }>(`/search/services${params.q ? `?q=${encodeURIComponent(params.q)}` : ''}`),
+
+  getAdminAnnouncements: () => request<{ success: boolean; data: Announcement[] }>('/admin/content/announcements'),
+  deleteAnnouncement: (id: string) => request<{ success: boolean; message: string }>(`/admin/content/announcements/${id}`, {
+    method: 'DELETE',
+  }),
+  updateReview: (id: string, payload: Partial<Review>) =>
+    request<{ success: boolean; message: string; data: Review }>(`/admin/content/reviews/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  deleteUser: (id: string) =>
+    request<{ success: boolean; message: string }>(`/admin/users/${id}`, {
       method: 'DELETE',
     }),
 

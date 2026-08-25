@@ -522,6 +522,11 @@ app.patch('/api/admin/appointments/:id/status', authenticateToken, requireRoles(
   const adminUser = req.user!;
   const { status, reason, clinicInternalNotes } = req.body;
 
+  const allowedStatuses = ['new', 'confirmed', 'checked_in', 'completed', 'cancelled', 'no_show'];
+  if (!allowedStatuses.includes(status)) {
+    return res.status(400).json({ success: false, message: 'حالة الحجز غير صالحة.' });
+  }
+
   const apt = await db.findAppointmentById(req.params.id);
   if (!apt) {
     return res.status(404).json({ success: false, message: 'الموعد غير موجود.' });
@@ -625,6 +630,27 @@ app.get('/api/admin/patients/:phone/history', authenticateToken, requireRoles('s
   const all = await db.getAppointments();
   const history = all.filter(a => a.patientPhone === phone);
   res.json({ success: true, data: history });
+}));
+
+// Deactivate patient (soft delete) — super_admin only
+app.delete('/api/admin/patients/:id', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const deactivated = await db.deactivatePatient(req.params.id);
+  if (!deactivated) {
+    return res.status(404).json({ success: false, message: 'المريض غير موجود.' });
+  }
+
+  await db.logAudit(
+    adminUser.id,
+    adminUser.name,
+    adminUser.role,
+    'DEACTIVATE_PATIENT',
+    'User',
+    req.params.id,
+    `إيقاف تنشيط حساب المريض: ${deactivated.name}. لن يتمكن من تسجيل الدخول ولن يظهر في دليل المرضى.`
+  );
+
+  res.json({ success: true, message: 'تم إيقاف تنشيط الحساب بنجاح.', data: deactivated });
 }));
 
 // ----------------------------------------------------
@@ -777,6 +803,25 @@ app.delete('/api/admin/content/reviews/:id', authenticateToken, requireRoles('su
   res.json({ success: true, message: 'تم حذف التقييم بنجاح.' });
 }));
 
+app.put('/api/admin/content/reviews/:id', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const updated = await db.updateReview(req.params.id, req.body);
+  if (!updated) return res.status(404).json({ success: false, message: 'التقييم غير موجود.' });
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'UPDATE_REVIEW', 'Review', updated.id, `تحديث بيانات تقييم مريض.`);
+  res.json({ success: true, message: 'تم تحديث التقييم بنجاح.', data: updated });
+}));
+
+app.get('/api/admin/content/announcements', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req, res) => {
+  res.json({ success: true, data: await db.getAnnouncements(true) });
+}));
+
+app.delete('/api/admin/content/announcements/:id', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  await db.deleteAnnouncement(req.params.id);
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'DELETE_ANNOUNCEMENT', 'Announcement', req.params.id, `حذف شريط إعلان.`);
+  res.json({ success: true, message: 'تم حذف الإعلان بنجاح.' });
+}));
+
 app.get('/api/admin/content/faqs', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req, res) => {
   res.json({ success: true, data: await db.getFaqs(true) });
 }));
@@ -830,6 +875,110 @@ app.get('/api/admin/users', authenticateToken, requireRoles('super_admin'), wrap
   res.json({ success: true, data: await db.getUsers() });
 }));
 
+// ----------------------------------------------------
+// 8. SEARCH ENDPOINTS (read-only, role-based access)
+// ----------------------------------------------------
+
+// Search appointments — super_admin, receptionist
+app.get('/api/search/appointments', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req, res) => {
+  const { q, status, branchId, serviceId, dateFrom, dateTo } = req.query as any;
+  const appointments = await db.getAppointments({ search: String(q), status: String(status || ''), branchId: String(branchId || ''), serviceId: String(serviceId || ''), dateFrom: String(dateFrom || ''), dateTo: String(dateTo || '') });
+  res.json({ success: true, data: appointments });
+}));
+
+// Search patients — super_admin, receptionist
+app.get('/api/search/patients', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req, res) => {
+  const { q } = req.query as { q?: string };
+  const [appointments, registeredUsers] = await Promise.all([
+    db.getAppointments(),
+    db.getUsers(),
+  ]);
+  const patients = registeredUsers.filter(u => u.role === 'patient');
+
+  const patientMap = new Map<string, any>();
+
+  patients.forEach(u => {
+    patientMap.set(u.phone, {
+      id: u.id,
+      name: u.name,
+      phone: u.phone,
+      email: u.email,
+      age: u.age,
+      gender: u.gender,
+      isRegistered: true,
+      totalBookings: 0,
+      lastVisitDate: null,
+    });
+  });
+
+  appointments.forEach(apt => {
+    const existing = patientMap.get(apt.patientPhone) || {
+      id: apt.patientId || `guest_${apt.patientPhone}`,
+      name: apt.patientName,
+      phone: apt.patientPhone,
+      email: apt.patientEmail,
+      age: apt.patientAge,
+      gender: apt.patientGender,
+      isRegistered: !!apt.patientId,
+      totalBookings: 0,
+      lastVisitDate: null,
+    };
+    existing.totalBookings += 1;
+    if (!existing.lastVisitDate || apt.appointmentDate > existing.lastVisitDate) {
+      existing.lastVisitDate = apt.appointmentDate;
+    }
+    patientMap.set(apt.patientPhone, existing);
+  });
+
+  let list = Array.from(patientMap.values());
+  if (q) {
+    const s = String(q).toLowerCase().trim();
+    list = list.filter(p => p.name.toLowerCase().includes(s) || p.phone.includes(s));
+  }
+
+  res.json({ success: true, data: list });
+}));
+
+// Search branches — super_admin, receptionist, content_editor
+app.get('/api/search/branches', authenticateToken, requireRoles('super_admin', 'receptionist', 'content_editor'), wrap(async (req, res) => {
+  const { q } = req.query as { q?: string };
+  const branches = await db.getBranches(true);
+  let list = branches;
+  if (q) {
+    const s = String(q).toLowerCase().trim();
+    list = branches.filter(b => b.name.toLowerCase().includes(s) || b.city.toLowerCase().includes(s));
+  }
+  res.json({ success: true, data: list });
+}));
+
+// Search services — super_admin, receptionist, content_editor
+app.get('/api/search/services', authenticateToken, requireRoles('super_admin', 'receptionist', 'content_editor'), wrap(async (req, res) => {
+  const { q } = req.query as { q?: string };
+  const services = await db.getServices(true);
+  let list = services;
+  if (q) {
+    const needle = String(q).toLowerCase().trim();
+    list = services.filter(svc => svc.name.toLowerCase().includes(needle) || (svc.description && svc.description.toLowerCase().includes(needle)));
+  }
+  res.json({ success: true, data: list });
+}));
+
+// ----------------------------------------------------
+// 9. SYSTEM, AUDIT LOGS & NOTIFICATIONS
+// ----------------------------------------------------
+
+app.get('/api/admin/audit-logs', authenticateToken, requireRoles('super_admin'), wrap(async (req, res) => {
+  res.json({ success: true, data: await db.getAuditLogs(100) });
+}));
+
+app.get('/api/admin/notifications', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req, res) => {
+  res.json({ success: true, data: await db.getNotifications(100) });
+}));
+
+app.get('/api/admin/users', authenticateToken, requireRoles('super_admin'), wrap(async (req, res) => {
+  res.json({ success: true, data: await db.getUsers() });
+}));
+
 app.post('/api/admin/users', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {
   const adminUser = req.user!;
   const { name, phone, email, password, role } = req.body;
@@ -868,11 +1017,43 @@ app.post('/api/admin/users', authenticateToken, requireRoles('super_admin'), wra
   res.status(201).json({ success: true, message: 'تم إنشاء حساب الموظف بنجاح.', data: { ...newUser, id: uid } });
 }));
 
+app.put('/api/admin/users/:id', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const updated = await db.updateUser(req.params.id, req.body);
+  if (!updated) return res.status(404).json({ success: false, message: 'المستخدم غير موجود.' });
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'UPDATE_USER', 'User', updated.id, `تحديث بيانات المستخدم.`);
+  res.json({ success: true, message: 'تم تحديث المستخدم بنجاح.', data: updated });
+}));
+
+app.delete('/api/admin/users/:id', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const deleted = await db.deleteUser(req.params.id);
+  if (!deleted) return res.status(404).json({ success: false, message: 'المستخدم غير موجود.' });
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'DELETE_USER', 'User', req.params.id, `حذف حساب الموظف: ${deleted.name}.`);
+  res.json({ success: true, message: 'تم حذف الحساب بنجاح.' });
+}));
+
+app.put('/api/admin/content/doctorProfile', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const profile = await db.updateDoctorProfile(req.body, adminUser.id);
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'UPDATE_DOCTOR_PROFILE', 'DoctorProfile', 'main', `تحديث ملف الدكتور.`);
+  res.json({ success: true, message: 'تم حفظ ملف الدكتور بنجاح.', data: profile });
+}));
+
 // 404 JSON response for any unmatched API route to prevent HTML fallback
 app.all('/api/*', (req, res) => {
   res.status(404).json({
     success: false,
     message: `المسار البرمجي غير موجود (${req.method} ${req.originalUrl})`,
+  });
+});
+
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  console.error(`[API Error] ${req.method} ${req.originalUrl}`, err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({
+    success: false,
+    message: err?.message || 'حدث خطأ غير متوقع في الخادم.',
   });
 });
 

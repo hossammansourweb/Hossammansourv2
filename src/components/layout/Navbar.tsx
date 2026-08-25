@@ -144,16 +144,43 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
                 )}
               </button>
 
-              {/* Register button - desktop only */}
-              <button
-                type="button"
-                onClick={() => onOpenAuth('register')}
-                className="lg:flex lg:items-center lg:justify-center hidden w-10 h-10 rounded-full border border-slate-200 dark:border-[#1F4E5A] bg-white dark:bg-[#123842] hover:bg-slate-50 dark:hover:bg-[#184854] text-slate-700 dark:text-slate-200 flex items-center justify-center shadow-2xs transition-colors cursor-pointer"
-                aria-label="إنشاء حساب"
-                title="إنشاء حساب"
-              >
-                <User className="w-4.5 h-4.5 text-slate-600 dark:text-slate-300" />
-              </button>
+              {/* Account control - desktop only (role-aware) */}
+              {!user && (
+                <button
+                  type="button"
+                  onClick={() => onOpenAuth('register')}
+                  className="hidden lg:flex w-10 h-10 rounded-full border border-slate-200 dark:border-[#1F4E5A] bg-white dark:bg-[#123842] hover:bg-slate-50 dark:hover:bg-[#184854] text-slate-700 dark:text-slate-200 items-center justify-center shadow-2xs transition-colors cursor-pointer"
+                  aria-label="إنشاء حساب"
+                  title="إنشاء حساب"
+                >
+                  <User className="w-4.5 h-4.5 text-slate-600 dark:text-slate-300" />
+                </button>
+              )}
+
+              {user && isStaff && (
+                <button
+                  type="button"
+                  onClick={() => handleLinkClick('admin')}
+                  className="hidden lg:flex items-center gap-2 h-10 px-4 rounded-full border border-[#E05A44]/30 dark:border-[#E05A44]/40 bg-[#E05A44]/10 dark:bg-[#E05A44]/20 hover:bg-[#E05A44]/15 text-[#E05A44] dark:text-[#f27463] font-bold text-xs shadow-2xs transition-colors cursor-pointer"
+                  aria-label="لوحة التحكم"
+                  title="لوحة التحكم"
+                >
+                  <LayoutDashboard className="w-4.5 h-4.5" />
+                  <span>لوحة التحكم</span>
+                </button>
+              )}
+
+              {user && !isStaff && (
+                <button
+                  type="button"
+                  onClick={() => handleLinkClick('patient-portal')}
+                  className="hidden lg:flex w-10 h-10 rounded-full border border-slate-200 dark:border-[#1F4E5A] bg-white dark:bg-[#123842] hover:bg-slate-50 dark:hover:bg-[#184854] text-slate-700 dark:text-slate-200 items-center justify-center shadow-2xs transition-colors cursor-pointer"
+                  aria-label="حسابي"
+                  title="حسابي"
+                >
+                  <User className="w-4.5 h-4.5 text-slate-600 dark:text-slate-300" />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -266,6 +293,16 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
             <div className="pt-4 border-t border-slate-100 dark:border-[#17424C] space-y-3">
               {user ? (
                 <div className="space-y-2">
+                  {isStaff && (
+                    <button
+                      type="button"
+                      onClick={() => handleLinkClick('admin')}
+                      className="w-full py-3 px-4 rounded-xl bg-[#E05A47]/10 dark:bg-[#E05A47]/20 border border-[#E05A44]/30 dark:border-[#E05A44]/40 text-[#E05A44] dark:text-[#f27463] text-xs font-bold flex items-center justify-center gap-2"
+                    >
+                      <LayoutDashboard className="w-4 h-4" />
+                      <span>لوحة التحكم</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => handleLinkClick('patient-portal')}
