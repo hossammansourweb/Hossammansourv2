@@ -13,7 +13,8 @@ import {
   CalendarClock,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import type { Appointment } from '../../types/index.ts';
+import { api } from '../../services/api.ts';
+import type { Appointment, ScheduleException } from '../../types/index.ts';
 
 /* ============================================================
    Admin UI primitives — RTL-first, responsive, theme-aware.
@@ -679,22 +680,98 @@ export function ExceptionModal({
 }: {
   open: boolean;
   branches: any[];
-  editing?: boolean;
+  editing?: ScheduleException | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const toast = useToast();
+  const [type, setType] = useState<'holiday' | 'off_day' | 'special_hours'>('holiday');
+  const [date, setDate] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [reason, setReason] = useState('');
+  const [branchId, setBranchId] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    if (editing) {
+      setType(editing.type);
+      setDate(editing.date);
+      setStartTime(editing.startTime || '');
+      setEndTime(editing.endTime || '');
+      setReason(editing.reason);
+      setBranchId(editing.branchId);
+    } else {
+      setType('holiday');
+      setDate('');
+      setStartTime('');
+      setEndTime('');
+      setReason('');
+      setBranchId('');
+    }
+  }, [open, editing]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const payload = { type, date, startTime: startTime || undefined, endTime: endTime || undefined, reason, branchId };
+      if (editing) {
+        await api.updateException(editing.id, payload);
+      } else {
+        await api.createException(payload as any);
+      }
+      onSaved();
+    } catch (e: any) {
+      toast.push({ kind: 'error', title: 'فشل الحفظ', description: e.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!open) return null;
   return (
-    <ConfirmDialog
-      open={true}
-      title="حفظ الاستثناء"
-      description={editing ? 'هل تريد حفظ الاستثناء؟' : 'هل تريد حذف الاستثناء؟'}
-      confirmLabel={editing ? 'حفظ' : 'حذف'}
-      danger={false}
-      loading={false}
-      onClose={() => onClose()}
-      onConfirm={() => onSaved()}
-    />
+    <FormModal open={true} title={editing ? 'تعديل الاستثناء' : 'استثناء جديد'} onClose={onClose}>
+      <form onSubmit={e => { e.preventDefault(); handleSave(); }} className="space-y-4">
+        <FormField label="الفرع" required>
+          <select className={selectCls} value={branchId} onChange={e => setBranchId(e.target.value)} required>
+            <option value="">اختر الفرع</option>
+            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </FormField>
+        <FormField label="النوع" required>
+          <select className={selectCls} value={type} onChange={e => setType(e.target.value as any)}>
+            <option value="holiday">عطلة رسمية</option>
+            <option value="off_day">إجازة يوم</option>
+            <option value="special_hours">ساعات خاصة</option>
+          </select>
+        </FormField>
+        <FormField label="التاريخ" required>
+          <input type="date" className={inputCls} value={date} onChange={e => setDate(e.target.value)} required />
+        </FormField>
+        {type === 'special_hours' && (
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="من">
+              <input type="time" className={inputCls} value={startTime} onChange={e => setStartTime(e.target.value)} />
+            </FormField>
+            <FormField label="إلى">
+              <input type="time" className={inputCls} value={endTime} onChange={e => setEndTime(e.target.value)} />
+            </FormField>
+          </div>
+        )}
+        <FormField label="السبب">
+          <textarea className={inputCls} rows={3} value={reason} onChange={e => setReason(e.target.value)} />
+        </FormField>
+        <div className="flex gap-3 pt-2">
+          <button type="submit" disabled={saving} className="flex-1 px-4 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] disabled:opacity-50 cursor-pointer">
+            {saving ? 'جارٍ الحفظ...' : editing ? 'حفظ التعديلات' : 'إضافة'}
+          </button>
+          <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-[#1E4F5A] text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer">
+            إلغاء
+          </button>
+        </div>
+      </form>
+    </FormModal>
   );
 }
 

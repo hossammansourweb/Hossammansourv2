@@ -756,8 +756,12 @@ export function WorkingHours() {
   const [error, setError] = useState<string | null>(null);
   const [branchId, setBranchId] = useState('all');
   const [exceptionModal, setExceptionModal] = useState(false);
+  const [editingException, setEditingException] = useState<ScheduleException | null>(null);
   const [confirmDeleteEx, setConfirmDeleteEx] = useState<ScheduleException | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [editingDay, setEditingDay] = useState<WorkingHourRule | null>(null);
+  const [editForm, setEditForm] = useState<{ isOpen: boolean; startTime: string; endTime: string }>({ isOpen: true, startTime: '09:00', endTime: '17:00' });
+  const [savingDay, setSavingDay] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -783,6 +787,29 @@ export function WorkingHours() {
     finally { setDeleting(false); }
   };
 
+  const handleSaveDay = async (rule: WorkingHourRule) => {
+    setSavingDay(true);
+    try {
+      const updates: Partial<WorkingHourRule> = {
+        isOpen: editForm.isOpen,
+        startTime: editForm.startTime,
+        endTime: editForm.endTime,
+      };
+      const r = await api.updateWorkingHour(rule.id, updates);
+      if (r.success) {
+        toast.push({ kind: 'success', title: 'تم تحديث الموعد' });
+        setEditingDay(null);
+        load();
+      } else {
+        toast.push({ kind: 'error', title: 'فشل التحديث', description: r.message });
+      }
+    } catch (e: any) {
+      toast.push({ kind: 'error', title: 'فشل التحديث', description: e.message });
+    } finally {
+      setSavingDay(false);
+    }
+  };
+
   const today = new Date().getDay();
 
   return (
@@ -792,7 +819,7 @@ export function WorkingHours() {
           <FilterBar onReset={() => setBranchId('all')} filters={[{ id: 'branch', label: 'الفرع', value: branchId, onChange: setBranchId, options: [{ v: 'all', label: 'كل الفروع' }, ...branches.map(b => ({ v: b.id, label: b.name }))] }]} />
           <div className="flex-1" />
           {isSuperAdmin && (
-            <button type="button" onClick={() => setExceptionModal(true)} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] cursor-pointer whitespace-nowrap">
+            <button type="button" onClick={() => { setEditingException(null); setExceptionModal(true); }} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] cursor-pointer whitespace-nowrap">
               <Plus className="w-4 h-4" /> استثناء جديد
             </button>
           )}
@@ -807,9 +834,34 @@ export function WorkingHours() {
                 {[...rules].sort((a, b) => a.dayOfWeek - b.dayOfWeek).map(r => (
                   <div key={r.id} className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border ${r.dayOfWeek === today ? 'border-teal-300 dark:border-teal-700 bg-teal-50/60 dark:bg-teal-900/20' : 'border-slate-100 dark:border-[#1E4F5A] bg-slate-50/50 dark:bg-[#10333C]/40'}`}>
                     <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{getDayOfWeekArabic(r.dayOfWeek)}</span>
-                    {r.isOpen ? (
-                      <span className="text-xs font-bold text-teal-700 dark:text-teal-300 font-mono">{r.startTime} – {r.endTime}</span>
-                    ) : <Pill label="مغلق" tone="slate" />}
+                    {editingDay?.id === r.id ? (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+                          <input type="checkbox" checked={editForm.isOpen} onChange={e => setEditForm(f => ({...f, isOpen: e.target.checked}))} className="rounded border-slate-300" />
+                          مفتوح
+                        </label>
+                        {editForm.isOpen && (
+                          <div className="flex items-center gap-1">
+                            <input type="time" className="w-22 px-2 py-1 rounded-lg border border-slate-200 dark:border-[#1E4F5A] bg-white dark:bg-[#0E2C33] text-xs text-slate-800 dark:text-slate-100" value={editForm.startTime} onChange={e => setEditForm(f => ({...f, startTime: e.target.value}))} />
+                            <span className="text-xs text-slate-400">–</span>
+                            <input type="time" className="w-22 px-2 py-1 rounded-lg border border-slate-200 dark:border-[#1E4F5A] bg-white dark:bg-[#0E2C33] text-xs text-slate-800 dark:text-slate-100" value={editForm.endTime} onChange={e => setEditForm(f => ({...f, endTime: e.target.value}))} />
+                          </div>
+                        )}
+                        <button type="button" onClick={() => handleSaveDay(r)} disabled={savingDay} className="px-2.5 py-1 rounded-lg bg-teal-600 text-white text-xs font-bold hover:bg-teal-700 disabled:opacity-50 cursor-pointer">حفظ</button>
+                        <button type="button" onClick={() => setEditingDay(null)} className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-[#123842] text-slate-600 dark:text-slate-300 text-xs font-bold hover:bg-slate-200 cursor-pointer">إلغاء</button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        {r.isOpen ? (
+                          <span className="text-xs font-bold text-teal-700 dark:text-teal-300 font-mono">{r.startTime} – {r.endTime}</span>
+                        ) : <Pill label="مغلق" tone="slate" />}
+                        {isSuperAdmin && (
+                          <button type="button" onClick={() => { setEditForm({ isOpen: r.isOpen, startTime: r.startTime, endTime: r.endTime }); setEditingDay(r); }} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-[#123842] cursor-pointer" aria-label="تعديل">
+                            <FileEdit className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -830,9 +882,14 @@ export function WorkingHours() {
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{ex.reason}</p>
                     </div>
                     {isSuperAdmin && (
-                      <button type="button" onClick={() => setConfirmDeleteEx(ex)} className="p-2 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer" aria-label="حذف">
-                        <Minus className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button type="button" onClick={() => { setEditingException(ex); setExceptionModal(true); }} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-[#123842] cursor-pointer" aria-label="تعديل">
+                          <FileEdit className="w-4 h-4" />
+                        </button>
+                        <button type="button" onClick={() => setConfirmDeleteEx(ex)} className="p-2 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer" aria-label="حذف">
+                          <Minus className="w-4 h-4" />
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -842,8 +899,8 @@ export function WorkingHours() {
         </div>
       )}
 
-      <ExceptionModal open={exceptionModal} branches={branches} onClose={() => setExceptionModal(false)}
-        onSaved={() => { setExceptionModal(false); load(); toast.push({ kind: 'success', title: 'تم إضافة الاستثناء' }); }} />
+      <ExceptionModal open={exceptionModal} branches={branches} editing={editingException} onClose={() => { setExceptionModal(false); setEditingException(null); }}
+        onSaved={() => { setExceptionModal(false); setEditingException(null); load(); toast.push({ kind: 'success', title: editingException ? 'تم تعديل الاستثناء' : 'تم إضافة الاستثناء' }); }} />
 
       <ConfirmDialog open={!!confirmDeleteEx} title="حذف الاستثناء؟" confirmLabel="حذف" danger
         description={confirmDeleteEx ? <>هل تريد حذف هذا الاستثناء في <b>{formatArabicDate(confirmDeleteEx.date)}</b>؟</> : null}
@@ -1204,94 +1261,3 @@ export function UsersPage() {
   );
 }
 
-/* ============================================================
-   AUDIT LOG — super_admin only
-   ============================================================ */
-export function AuditLogPage() {
-  const [items, setItems] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const PAGE_SIZE = 25;
-  const perPage = PAGE_SIZE;
-
-  const load = useCallback(async () => {
-    setLoading(true); setError(null);
-    try {
-      const r = await api.getAuditLogs();
-      if (r.success) setItems(r.data);
-      else setError('تعذّر تحميل السجلات.');
-    } catch (e: any) { setError(e.message); }
-    finally { setLoading(false); }
-  }, []);
-  useEffect(() => { load(); }, [load]);
-
-  const filtered = items.filter(l => !search || l.action.includes(search) || l.userName.includes(search) || l.description.includes(search));
-  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const slice = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  return (
-    <div>
-      <div className="surface-card rounded-2xl p-4 mb-4">
-        <SearchBar value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="ابحث بالإجراء، اسم المستخدم، أو الوصف..." />
-      </div>
-      {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={load} /> : slice.length === 0 ? <EmptyState title="لا توجد سجلات" /> : (
-        <div className="surface-card rounded-2xl overflow-hidden">
-          {slice.map(l => (
-            <div key={l.id} className="px-4 py-3 border-b border-slate-100 dark:border-[#17424C] last:border-0">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-teal-600" />
-                  <span className="text-sm font-bold text-slate-800 dark:text-white">{l.action}</span>
-                  <Pill tone="teal" label={l.userName} />
-                  <Pill tone="slate" label={l.userRole} />
-                </div>
-                <span className="text-[11px] text-slate-500 font-mono" dir="ltr">{new Date(l.timestamp).toLocaleString('ar-EG')}</span>
-              </div>
-              <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">{l.description}</p>
-            </div>
-          ))}
-        </div>
-      )}
-      <Pagination page={page} total={filtered.length} perPage={perPage} onChange={setPage} />
-    </div>
-  );
-}
-
-/* ============================================================
-   PROFILE — current admin's own profile
-   ============================================================ */
-export function Profile() {
-  const { user } = useAuth();
-  const toast = useToast();
-  if (!user) return <EmptyState title="غير مسجّل" />;
-
-  return (
-    <div>
-      <div className="surface-card rounded-2xl p-6 flex items-center gap-4 mb-4">
-        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-teal-500 to-teal-700 text-white flex items-center justify-center text-xl font-extrabold">
-          {user.name?.charAt(0) || '؟'}
-        </div>
-        <div>
-          <h3 className="text-lg font-extrabold text-slate-800 dark:text-white">{user.name}</h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400" dir="ltr">{user.phone}</p>
-          <div className="mt-2">
-            <Pill tone={user.role === 'super_admin' ? 'coral' : user.role === 'receptionist' ? 'teal' : 'amber'} label={user.role === 'super_admin' ? 'مدير عام' : user.role === 'receptionist' ? 'استقبال' : 'محرر محتوى'} />
-          </div>
-        </div>
-      </div>
-
-      <div className="surface-card rounded-2xl p-4">
-        <h3 className="font-bold text-slate-800 dark:text-white mb-3">الأمان</h3>
-        <button
-          type="button"
-          onClick={() => toast.push({ kind: 'info', title: 'قريباً', description: 'ميزة تغيير كلمة المرور قيد التطوير.' })}
-          className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-[#1F4E5A] text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-50 dark:hover:bg-[#123842]"
-        >
-          تغيير كلمة المرور
-        </button>
-      </div>
-    </div>
-  );
-}
