@@ -58,9 +58,11 @@ export function getSignInMethodsForEmail(email: string) {
 let gisInitialized = false;
 let gisCredentialHandler: ((credential: string) => void) | null = null;
 // Tracks whether One Tap has been permanently disabled for this session
-// (e.g. user dismissed, browser blocked FedCM, origin not registered).
-// Once true, we never call prompt() again — avoids console spam and
-// repeated UI interruptions.
+// (e.g. user dismissed via the button, or the caller opted out). Once true,
+// we never call prompt() again — avoids console spam and repeated UI
+// interruptions. We do NOT set this based on Google's deprecated moment
+// callback (isNotDisplayed/isSkipped/isDismissed), which Google warns will
+// stop functioning as FedCM becomes mandatory.
 let oneTapDisabled = false;
 
 export function isOneTapDisabled(): boolean {
@@ -88,13 +90,13 @@ export async function initOneTap(handlers: {
   if (!gisInitialized) {
     g.accounts.id.initialize({
       client_id: GOOGLE_CLIENT_ID,
-      // Don't force FedCM — let the browser use it when available and fall
-      // back to the legacy cookie-based flow otherwise. Forcing FedCM
-      // causes hard `NetworkError: retrieving a token` failures in browsers
-      // where FedCM is disabled (site settings, previous user action, or
-      // unsupported environments), which Google logs to the console before
-      // our code can react.
-      use_fedcm_for_prompt: false,
+      // Use the modern FedCM path. Google's library now handles FedCM
+      // availability internally — when FedCM is disabled (site settings,
+      // previous user action) it falls back to the legacy flow without
+      // surfacing the deprecated `isNotDisplayed`/`isSkipped`/`isDismissed`
+      // moment callbacks. Setting this to `false` would also work, but
+      // `true` is the recommended path going forward.
+      use_fedcm_for_prompt: true,
       // Don't auto-cancel when the user clicks outside — let them dismiss
       // explicitly so we don't lose the prompt mid-interaction.
       cancel_on_tap_outside: false,
@@ -120,58 +122,31 @@ export function promptOneTap(onNotShown?: () => void) {
     onNotShown?.();
     return;
   }
-  // The moment callback is the ONLY way to learn why One Tap didn't show.
-  // Without it, Google's library logs the failure to the console and our
-  // onError handler is never called — which is exactly what's happening
-  // now. We inspect the reason and disable One Tap for the rest of the
-  // session on any non-recoverable failure.
-  g.accounts.id.prompt((notification: any) => {
-    if (notification.isNotDisplayed?.()) {
-      const reason: string = notification.getNotDisplayedReason?.() || 'unknown';
-      // Non-recoverable for this session: don't keep trying.
-      oneTapDisabled = true;
-      // Known-benign reasons — log at info level only, never as an error.
-      if (
-        reason === 'browser_not_supported' ||
-        reason === 'unregistered_origin' ||
-        reason === 'invalid_client' ||
-        reason === 'fedcm_disabled' ||
-        reason === 'fedcm_unavailable' ||
-        reason === 'missing_client_id' ||
-        reason === 'opt_out' ||
-        reason === 'suppressed_by_user'
-      ) {
-        onNotShown?.();
-        return;
-      }
-      onNotShown?.();
-      return;
-    }
-    if (notification.isSkipped?.()) {
-      const reason: string = notification.getSkippedReason?.() || 'unknown';
-      if (reason === 'user_cancel' || reason === 'tap_outside') {
-        // User explicitly dismissed — stop trying for this session.
-        oneTapDisabled = true;
-      }
-      return;
-    }
-    if (notification.isDismissed?.()) {
-      const reason: string = notification.getDismissedReason?.() || 'unknown';
-      if (
-        reason === 'credential_returned' ||
-        reason === 'cancel_called' ||
-        reason === 'flow_restarted'
-      ) {
-        return;
-      }
-      // User dismissed via UI — don't auto-prompt again this session.
-      oneTapDisabled = true;
-    }
-  });
+  // Per Google's current FedCM guidance, do NOT pass the deprecated moment
+  // callback (notification => notification.isNotDisplayed() / .isSkipped() /
+  // .isDismissed()). Those methods are slated to stop functioning when FedCM
+  // becomes mandatory. The library now logs the
+  // "uses one of the Google One Tap prompt UI status methods" warning when
+  // they are used.
+  //
+  // Instead, we just call prompt() and rely on:
+  //   - The `callback` above for successful sign-ins.
+  //   - The standard "Continue with Google" button as the always-available
+  //     fallback (it uses Firebase Auth popup, independent of One Tap / FedCM).
+  //   - `cancelOneTap()` from the React effect cleanup to abort the prompt
+  //     when the auth modal unmounts.
+  g.accounts.id.prompt();
 }
 
 export function cancelOneTap() {
   (window as any).google?.accounts?.id?.cancel?.();
+}
+
+export function disableOneTap() {
+  // Called by the caller when it wants to stop prompting (e.g. the user
+  // clicked a "Not now" affordance). We don't infer this from Google's
+  // moment callback because those methods are deprecated.
+  oneTapDisabled = true;
 }
 
 export function resetOneTap() {

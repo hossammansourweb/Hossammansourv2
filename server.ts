@@ -50,6 +50,9 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
   try {
     const { firebaseAuth } = await import('./server/firebase');
     const decoded = await firebaseAuth().verifyIdToken(token);
+    // Attach the verified token claims so downstream handlers (e.g.
+    // /api/auth/sync) can read email/name without re-verifying.
+    (req as any).firebaseDecoded = decoded;
     // findUserById returns UserWithPassword (includes the server-only
     // passwordHash). The session only ever needs the public User shape, so
     // we strip the hash here at the boundary and type the local as User.
@@ -467,28 +470,24 @@ app.get('/api/auth/me', authenticateToken, (req: AuthRequest, res) => {
 // Used by Google Sign-In / One Tap: a new Google user gets a NORMAL patient
 // record (role 'patient'). Existing accounts are returned unchanged — their
 // role/permissions are never overwritten, and Google users are NEVER admins.
-app.post('/api/auth/sync', wrap(async (req: AuthRequest, res) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) {
-    return res.status(401).json({ success: false, message: 'غير مصرح.' });
-  }
-  let decoded: any;
-  try {
-    const { firebaseAuth } = await import('./server/firebase');
-    decoded = await firebaseAuth().verifyIdToken(token);
-  } catch {
-    return res.status(403).json({ success: false, message: 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً.' });
-  }
-
-  const uid = decoded.uid;
+//
+// Reuses the same `authenticateToken` middleware as `/api/auth/me` so the
+// token-verification path is identical and any failure mode is logged the
+// same way. A successful sign-in here implies a valid Firebase session, so
+// `req.user` is already populated by the middleware.
+app.post('/api/auth/sync', authenticateToken, wrap(async (req: AuthRequest, res) => {
+  const uid = req.user!.id;
   const existing = await db.findUserById(uid);
   if (existing) {
-    return res.json({ success: true, data: existing });
+    const { passwordHash: _omit, ...safe } = existing;
+    return res.json({ success: true, data: safe });
   }
 
-  const email = decoded.email || undefined;
-  const name = (decoded.name as string) || (email ? email.split('@')[0] : 'مستخدم Google');
+  // First-time Google sign-in: create a patient profile. The verified
+  // token's claims (email, name) come from a trusted source (Firebase Auth).
+  const decoded = (req as any).firebaseDecoded || {};
+  const email = decoded.email || req.user!.email || undefined;
+  const name = decoded.name || (email ? email.split('@')[0] : 'مستخدم Google');
   const newUser = await db.createUserWithId(uid, {
     name,
     phone: '',
