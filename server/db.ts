@@ -1,4 +1,4 @@
-import { db as firestore, firebaseAuth } from './firebase.ts';
+import { db as firestore, firebaseAuth } from './firebase';
 import {
   FieldValue,
   Timestamp,
@@ -20,7 +20,7 @@ import {
   DashboardStats,
   Prescription,
   AdminPrescription,
-} from '../src/types/index.ts';
+} from '../src/types';
 
 const timestamp = () => FieldValue.serverTimestamp();
 const writeAny = FieldValue as any;

@@ -3,8 +3,8 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
-import { db } from './server/db.ts';
-import { User, UserRole, Prescription, AdminPrescription } from './src/types/index.ts';
+import { db } from './server/db';
+import { User, UserRole, Prescription, AdminPrescription } from './src/types';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -48,7 +48,7 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
   }
 
   try {
-    const { firebaseAuth } = await import('./server/firebase.ts');
+    const { firebaseAuth } = await import('./server/firebase');
     const decoded = await firebaseAuth().verifyIdToken(token);
     // findUserById returns UserWithPassword (includes the server-only
     // passwordHash). The session only ever needs the public User shape, so
@@ -259,7 +259,7 @@ app.post('/api/public/appointments/book', wrap(async (req: AuthRequest, res) => 
   const token = authHeader && authHeader.split(' ')[1];
   if (token) {
     try {
-      const { firebaseAuth } = await import('./server/firebase.ts');
+      const { firebaseAuth } = await import('./server/firebase');
       const decoded = await firebaseAuth().verifyIdToken(token);
       if (decoded?.uid) patientId = decoded.uid;
     } catch (e) {
@@ -388,7 +388,7 @@ app.post('/api/auth/register', wrap(async (req, res) => {
   const authEmail = (email && email.trim()) || `${cleanPhone}@hossam-clinic.local`;
 
   // Check if a Firebase Auth account already uses this email
-  const { firebaseAuth } = await import('./server/firebase.ts');
+      const { firebaseAuth } = await import('./server/firebase');
   try {
     await firebaseAuth().getUserByEmail(authEmail);
     return res.status(409).json({ success: false, message: 'يوجد حساب مرتبط بهذا البريد الإلكتروني بالفعل.' });
@@ -475,7 +475,7 @@ app.post('/api/auth/sync', wrap(async (req: AuthRequest, res) => {
   }
   let decoded: any;
   try {
-    const { firebaseAuth } = await import('./server/firebase.ts');
+    const { firebaseAuth } = await import('./server/firebase');
     decoded = await firebaseAuth().verifyIdToken(token);
   } catch {
     return res.status(403).json({ success: false, message: 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً.' });
@@ -508,7 +508,7 @@ app.post('/api/auth/forgot-password', wrap(async (req, res) => {
     return res.status(404).json({ success: false, message: 'لم يتم العثور على حساب مرتبط بهذا الرقم أو البريد.' });
   }
   const email = user.email || `${user.phone}@hossam-clinic.local`;
-  const { firebaseAuth } = await import('./server/firebase.ts');
+      const { firebaseAuth } = await import('./server/firebase');
   try {
     const link = await firebaseAuth().generatePasswordResetLink(email);
     await db.createNotification({
@@ -1288,7 +1288,7 @@ app.post('/api/admin/users', authenticateToken, requireRoles('super_admin'), wra
     }
   }
 
-  const { firebaseAuth } = await import('./server/firebase.ts');
+      const { firebaseAuth } = await import('./server/firebase');
 
   // Pre-check duplicate Firebase Auth email
   try {
