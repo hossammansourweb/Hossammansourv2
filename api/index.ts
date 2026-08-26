@@ -1,34 +1,35 @@
-// Vercel serverless entry point. The Express app is defined in `server.ts`
-// and is imported here. Vercel's @vercel/node builder bundles this file (and
-// its imports) into a single serverless function that handles requests
-// rewritten from `/api/*` (see vercel.json).
+// Vercel serverless entry point.
 //
-// Why this approach: keeping the Express app intact preserves the existing
-// API contract, middleware, auth flow, and Firestore logic. No route refactor.
+// We load the pre-built Express app from `dist/server.cjs` (produced by
+// `npm run build` via esbuild) using `createRequire`. This is intentional:
+//
+//   1. It avoids the "Directory import '/var/task/server' is not supported"
+//      error that occurs when Vercel's ESM bundler tries to resolve
+//      `import '../server'` — the project root contains both `server.ts`
+//      and a `server/` directory, so an extension-less ESM import is
+//      ambiguous and Vercel picks the directory.
+//
+//   2. It uses the exact same bundle the project ships for non-Vercel
+//      hosts, so behavior is identical.
+//
+//   3. The bundle is CJS, so we bridge via `createRequire` from the ESM
+//      function entry.
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { createRequire } from 'module';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Always declare JSON so a failure here (e.g. a module-load error during
-  // `import('../server')`) returns JSON instead of Vercel's default
-  // text/plain error page, which the frontend cannot parse.
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+const require = createRequire(import.meta.url);
+// `api/_server.cjs` is produced by `esbuild server.ts --format=cjs` in the
+// build script. The leading underscore tells Vercel to ignore it as a
+// function (only files without a leading underscore in `api/` are
+// treated as serverless functions). Co-locating the bundle with the
+// function guarantees it is present in the Vercel function's filesystem
+// and avoids any ambiguity with the `server/` source directory at the
+// project root.
+const { app } = require('./_server.cjs');
 
-  try {
-    // Lazy-load the Express app. If any transitive import (server code,
-    // firebase-admin, etc.) throws while evaluating, we catch it here and
-    // still respond with JSON — preventing the `text/plain` 500 that Vercel
-    // emits for an uncaught module error.
-    const { app } = await import('../server');
-    return (app as any)(req, res);
-  } catch (err: any) {
-    // Log server-side only; never leak secrets/stack to the client.
-    console.error('[api] handler failed to load/execute:', err?.message || err, err?.stack);
-    if (!res.headersSent) {
-      res.status(500).json({
-        success: false,
-        error: 'Internal server error.',
-        detail: err?.message || 'Unknown error',
-      });
-    }
-  }
+export default function handler(req: VercelRequest, res: VercelResponse) {
+  // Express expects (req, res, next). Vercel provides a compatible pair.
+  // The original URL is preserved through the rewrite, so Express routes
+  // such as `/api/public/clinic-info` match correctly.
+  return (app as any)(req, res);
 }
