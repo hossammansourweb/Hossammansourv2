@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { api } from '../../services/api.ts';
-import type { Appointment, ScheduleException } from '../../types/index.ts';
+import type { Appointment, ScheduleException, User, Branch, MedicalService, FAQItem, Announcement } from '../../types/index.ts';
+import { formatTime12h, formatArabicDate } from '../../utils/date.ts';
 
 /* ============================================================
    Admin UI primitives — RTL-first, responsive, theme-aware.
@@ -454,33 +455,6 @@ export function FormModal({
   );
 }
 
-// ---------- FaqModal ----------
-export function FaqModal({
-  open,
-  editing,
-  onClose,
-  onSaved,
-}: {
-  open: boolean;
-  editing?: boolean;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  if (!open) return null;
-  return (
-    <ConfirmDialog
-      open={true}
-      title="حفظ / حذف السؤال"
-      description={editing ? 'هل تريد حفظ التغييرات؟' : 'هل تريد حذف هذا السؤال؟'}
-      confirmLabel={editing ? 'حفظ' : 'حذف'}
-      danger={!editing}
-      loading={false}
-      onClose={() => onClose()}
-      onConfirm={() => onSaved()}
-    />
-  );
-}
-
 // ---------- UserModal ----------
 export function UserModal({
   open,
@@ -489,26 +463,171 @@ export function UserModal({
   onSaved,
 }: {
   open: boolean;
-  editing?: boolean;
+  editing?: User | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const toast = useToast();
+  const isEditing = !!editing;
+  const [form, setForm] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    password: '',
+    role: 'receptionist' as 'super_admin' | 'receptionist' | 'content_editor',
+    isActive: true,
+  });
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!open) return;
+    if (editing) {
+      setForm({
+        name: editing.name || '',
+        phone: editing.phone || '',
+        email: editing.email || '',
+        password: '',
+        role: editing.role || 'receptionist',
+        isActive: editing.isActive !== false,
+      });
+    } else {
+      setForm({ name: '', phone: '', email: '', password: '', role: 'receptionist', isActive: true });
+    }
+    setErrors({});
+  }, [open, editing]);
+
+  const validate = () => {
+    const errs: Record<string, string> = {};
+    if (!form.name.trim()) errs.name = 'الاسم مطلوب';
+    if (!form.phone.trim()) errs.phone = 'الهاتف مطلوب';
+    else if (!/^01[0125][0-9]{8}$/.test(form.phone.trim().replace(/\s+/g, ''))) errs.phone = 'رقم هاتف مصري غير صحيح';
+    if (!isEditing && !form.password) errs.password = 'كلمة المرور مطلوبة';
+    if (isEditing && form.password && form.password.length < 6) errs.password = 'كلمة المرور 6 أحرف على الأقل';
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleSave = async () => {
+    if (!validate()) return;
+    setSaving(true);
+    try {
+      if (isEditing) {
+        const updates: Record<string, any> = {
+          name: form.name.trim(),
+          phone: form.phone.trim().replace(/\s+/g, ''),
+          email: form.email.trim() || undefined,
+          role: form.role,
+          isActive: form.isActive,
+        };
+        await api.updateUser(editing!.id, updates);
+        toast.push({ kind: 'success', title: 'تم تحديث الموظف', description: `تم حفظ بيانات ${form.name}` });
+      } else {
+        await api.createStaffUser({
+          name: form.name.trim(),
+          phone: form.phone.trim().replace(/\s+/g, ''),
+          email: form.email.trim() || undefined,
+          password: form.password,
+          role: form.role,
+        });
+        toast.push({ kind: 'success', title: 'تم إنشاء الموظف', description: `تم إنشاء حساب ${form.name} بنجاح` });
+      }
+      onSaved();
+    } catch (e: any) {
+      toast.push({ kind: 'error', title: 'فشل الحفظ', description: e.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!open) return null;
+
+  const fieldCls = 'w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1E4F5A] text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500';
+  const labelCls = 'block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5';
+
   return (
-    <ConfirmDialog
+    <FormModal
       open={true}
-      title="حفظ / حذف الموظف"
-      description={editing ? 'هل تريد حفظ التغييرات؟' : 'هل تريد حذف هذا الموظف؟'}
-      confirmLabel={editing ? 'حفظ' : 'حذف'}
-      danger={!editing}
-      loading={false}
-      onClose={() => onClose()}
-      onConfirm={() => onSaved()}
-    />
+      title={isEditing ? 'تعديل بيانات الموظف' : 'إضافة موظف جديد'}
+      onClose={onClose}
+      size="md"
+    >
+      <div className="space-y-4 text-right">
+        <div>
+          <label className={labelCls}>الاسم الكامل <span className="text-rose-500">*</span></label>
+          <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="اسم الموظف" className={fieldCls} />
+          {errors.name && <p className="text-[11px] text-rose-500 mt-1">{errors.name}</p>}
+        </div>
+
+        <div>
+          <label className={labelCls}>رقم الهاتف <span className="text-rose-500">*</span></label>
+          <input type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="01100171817" dir="ltr" className={fieldCls} />
+          {errors.phone && <p className="text-[11px] text-rose-500 mt-1">{errors.phone}</p>}
+        </div>
+
+        <div>
+          <label className={labelCls}>البريد الإلكتروني</label>
+          <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="optional@email.com" dir="ltr" className={fieldCls} />
+        </div>
+
+        <div>
+          <label className={labelCls}>كلمة المرور {!isEditing && <span className="text-rose-500">*</span>}</label>
+          <input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={isEditing ? 'اتركها فارغة للإبقاء على الحالية' : '6 أحرف على الأقل'} className={fieldCls} />
+          {errors.password && <p className="text-[11px] text-rose-500 mt-1">{errors.password}</p>}
+        </div>
+
+        <div>
+          <label className={labelCls}>الصلاحية / الدور</label>
+          <select
+            value={form.role}
+            onChange={e => setForm(f => ({ ...f, role: e.target.value as any }))}
+            className={fieldCls + ' cursor-pointer'}
+          >
+            <option value="super_admin">مدير عام (Super Admin)</option>
+            <option value="receptionist">موظف استقبال (Receptionist)</option>
+            <option value="content_editor">محرر محتوى (Content Editor)</option>
+          </select>
+        </div>
+
+        {isEditing && (
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="user-is-active"
+              checked={form.isActive}
+              onChange={e => setForm(f => ({ ...f, isActive: e.target.checked }))}
+              className="w-4 h-4 rounded border-slate-300 text-teal-600"
+            />
+            <label htmlFor="user-is-active" className="text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
+              حساب نشط (يمكنه تسجيل الدخول)
+            </label>
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100 dark:border-[#1E4F5A]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-[#123842] text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer hover:bg-slate-200"
+          >
+            إلغاء
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="px-5 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold shadow-sm cursor-pointer hover:bg-[#092631] disabled:opacity-50"
+          >
+            {saving ? 'جارِ الحفظ...' : isEditing ? 'حفظ التعديلات' : 'إنشاء الموظف'}
+          </button>
+        </div>
+      </div>
+    </FormModal>
   );
 }
 
-// ---------- AnnouncementModal ----------
+
+// ---------- AnnouncementModal (real form) ----------
 export function AnnouncementModal({
   open,
   editing,
@@ -516,26 +635,99 @@ export function AnnouncementModal({
   onSaved,
 }: {
   open: boolean;
-  editing?: boolean;
+  editing?: Announcement | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const toast = useToast();
+  const [message, setMessage] = useState('');
+  const [type, setType] = useState<'info' | 'alert' | 'success'>('info');
+  const [isActive, setIsActive] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    if (editing) {
+      setMessage(editing.message || '');
+      setType((editing.type as any) || 'info');
+      setIsActive(editing.isActive !== false);
+    } else {
+      setMessage('');
+      setType('info');
+      setIsActive(true);
+    }
+    setError(null);
+  }, [open, editing]);
+
+  const handleSave = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!message.trim()) {
+      setError('نص الإعلان مطلوب.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      if (editing && editing.id) {
+        const r = await api.updateAnnouncement(editing.id, { message: message.trim(), type, isActive });
+        if (!r.success) throw new Error((r as any).message || 'فشل التحديث');
+        toast.push({ kind: 'success', title: 'تم تحديث الإعلان' });
+      } else {
+        const r = await api.createAnnouncement({ message: message.trim(), type, isActive });
+        if (!r.success) throw new Error((r as any).message || 'فشل الحفظ');
+        toast.push({ kind: 'success', title: 'تم إضافة الإعلان', description: 'سيظهر الإعلان في شريط الإعلانات فور التحديث.' });
+      }
+      onSaved();
+    } catch (e: any) {
+      setError(e?.message || 'حدث خطأ');
+      toast.push({ kind: 'error', title: 'فشل الحفظ', description: e?.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!open) return null;
   return (
-    <ConfirmDialog
-      open={true}
-      title="حفظ / حذف الإعلان"
-      description={editing ? 'هل تريد حفظ التغييرات؟' : 'هل تريد حذف هذا الإعلان؟'}
-      confirmLabel={editing ? 'حفظ' : 'حذف'}
-      danger={!editing}
-      loading={false}
-      onClose={() => onClose()}
-      onConfirm={() => onSaved()}
-    />
+    <FormModal open={true} title={editing ? 'تعديل الإعلان' : 'إضافة إعلان جديد'} onClose={onClose} size="md">
+      <form onSubmit={handleSave} className="space-y-4">
+        <FormField label="نص الإعلان" required error={error || undefined}>
+          <textarea
+            className={inputCls}
+            rows={3}
+            value={message}
+            onChange={e => { setMessage(e.target.value); setError(null); }}
+            placeholder="مثال: مواعيد العيادة يوم الخميس من 5 إلى 9 مساءً"
+            required
+          />
+        </FormField>
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="نوع الإعلان">
+            <select className={selectCls} value={type} onChange={e => setType(e.target.value as any)}>
+              <option value="info">معلومة</option>
+              <option value="alert">تنبيه</option>
+              <option value="success">نجاح</option>
+            </select>
+          </FormField>
+          <FormField label="الحالة">
+            <select className={selectCls} value={isActive ? '1' : '0'} onChange={e => setIsActive(e.target.value === '1')}>
+              <option value="1">نشط (يظهر في الشريط)</option>
+              <option value="0">متوقف</option>
+            </select>
+          </FormField>
+        </div>
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-[#1E4F5A]">
+          <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-[#123842] text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer">إلغاء</button>
+          <button type="submit" disabled={saving} className="px-5 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold disabled:opacity-50 cursor-pointer">
+            {saving ? 'جارِ الحفظ...' : editing ? 'حفظ التعديلات' : 'إضافة الإعلان'}
+          </button>
+        </div>
+      </form>
+    </FormModal>
   );
 }
 
-// ---------- BranchModal ----------
+// ---------- BranchModal (real form) ----------
 export function BranchModal({
   open,
   editing,
@@ -543,26 +735,143 @@ export function BranchModal({
   onSaved,
 }: {
   open: boolean;
-  editing?: boolean;
+  editing?: Branch | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const toast = useToast();
+  const empty = {
+    name: '',
+    city: '',
+    address: '',
+    mapUrl: '',
+    phone: '',
+    secondaryPhone: '',
+    workingHoursDescription: '',
+    isActive: true,
+    order: 1,
+  };
+  const [form, setForm] = useState<any>(empty);
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!open) return;
+    if (editing) {
+      setForm({
+        name: editing.name || '',
+        city: editing.city || '',
+        address: editing.address || '',
+        mapUrl: editing.mapUrl || '',
+        phone: editing.phone || '',
+        secondaryPhone: editing.secondaryPhone || '',
+        workingHoursDescription: editing.workingHoursDescription || '',
+        isActive: editing.isActive !== false,
+        order: editing.order ?? 1,
+      });
+    } else {
+      setForm({ ...empty });
+    }
+    setErrors({});
+  }, [open, editing]);
+
+  const validate = (): boolean => {
+    const errs: Record<string, string> = {};
+    if (!form.name.trim()) errs.name = 'اسم الفرع مطلوب';
+    if (!form.city.trim()) errs.city = 'المدينة مطلوبة';
+    if (!form.address.trim()) errs.address = 'العنوان مطلوب';
+    if (!form.phone.trim()) errs.phone = 'رقم الهاتف مطلوب';
+    else if (!/^01[0125][0-9]{8}$/.test(form.phone.trim().replace(/\s+/g, ''))) errs.phone = 'رقم هاتف مصري غير صحيح';
+    if (!form.workingHoursDescription.trim()) errs.workingHoursDescription = 'مواعيد العمل مطلوبة';
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleSave = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!validate()) return;
+    setSaving(true);
+    try {
+      const payload = {
+        name: form.name.trim(),
+        city: form.city.trim(),
+        address: form.address.trim(),
+        mapUrl: form.mapUrl.trim() || '',
+        phone: form.phone.trim().replace(/\s+/g, ''),
+        secondaryPhone: form.secondaryPhone?.trim() || undefined,
+        workingHoursDescription: form.workingHoursDescription.trim(),
+        isActive: !!form.isActive,
+        order: Number(form.order) || 1,
+      };
+      if (editing && editing.id) {
+        const r = await api.updateBranch(editing.id, payload);
+        if (!r.success) throw new Error((r as any).message || 'فشل التحديث');
+        toast.push({ kind: 'success', title: 'تم تحديث الفرع' });
+      } else {
+        const r = await api.createBranch(payload as any);
+        if (!r.success) throw new Error((r as any).message || 'فشل الحفظ');
+        toast.push({ kind: 'success', title: 'تمت إضافة الفرع', description: `تم إضافة فرع ${payload.name} بنجاح` });
+      }
+      onSaved();
+    } catch (e: any) {
+      toast.push({ kind: 'error', title: 'فشل الحفظ', description: e?.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!open) return null;
   return (
-    <ConfirmDialog
-      open={true}
-      title="حفظ / حذف الفرع"
-      description={editing ? 'هل تريد حفظ التغييرات؟' : 'هل تريد حذف هذا الفرع؟'}
-      confirmLabel={editing ? 'حفظ' : 'حذف'}
-      danger={!editing}
-      loading={false}
-      onClose={() => onClose()}
-      onConfirm={() => onSaved()}
-    />
+    <FormModal open={true} title={editing ? 'تعديل الفرع' : 'إضافة فرع جديد'} onClose={onClose} size="lg">
+      <form onSubmit={handleSave} className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="اسم الفرع" required error={errors.name}>
+            <input className={inputCls} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="مثال: فرع طنطا" />
+          </FormField>
+          <FormField label="المدينة" required error={errors.city}>
+            <input className={inputCls} value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} placeholder="مثال: طنطا" />
+          </FormField>
+        </div>
+        <FormField label="العنوان" required error={errors.address}>
+          <input className={inputCls} value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="الشارع، علامة مميزة..." />
+        </FormField>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="رقم الهاتف الأساسي" required error={errors.phone}>
+            <input type="tel" dir="ltr" className={inputCls} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="01100171817" />
+          </FormField>
+          <FormField label="رقم هاتف ثانوي">
+            <input type="tel" dir="ltr" className={inputCls} value={form.secondaryPhone} onChange={e => setForm({ ...form, secondaryPhone: e.target.value })} placeholder="اختياري" />
+          </FormField>
+        </div>
+        <FormField label="مواعيد العمل" required error={errors.workingHoursDescription}>
+          <input className={inputCls} value={form.workingHoursDescription} onChange={e => setForm({ ...form, workingHoursDescription: e.target.value })} placeholder="مثال: السبت - الخميس 5:00 م - 9:00 م" />
+        </FormField>
+        <FormField label="رابط الخريطة (Google Maps URL)">
+          <input dir="ltr" className={inputCls} value={form.mapUrl} onChange={e => setForm({ ...form, mapUrl: e.target.value })} placeholder="https://maps.google.com/..." />
+        </FormField>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="ترتيب العرض">
+            <input type="number" className={inputCls} value={form.order} onChange={e => setForm({ ...form, order: Number(e.target.value) })} />
+          </FormField>
+          <FormField label="الحالة">
+            <select className={selectCls} value={form.isActive ? '1' : '0'} onChange={e => setForm({ ...form, isActive: e.target.value === '1' })}>
+              <option value="1">نشط (يظهر على الموقع)</option>
+              <option value="0">غير نشط</option>
+            </select>
+          </FormField>
+        </div>
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-[#1E4F5A]">
+          <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-[#123842] text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer">إلغاء</button>
+          <button type="submit" disabled={saving} className="px-5 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold disabled:opacity-50 cursor-pointer">
+            {saving ? 'جارِ الحفظ...' : editing ? 'حفظ التعديلات' : 'إضافة الفرع'}
+          </button>
+        </div>
+      </form>
+    </FormModal>
   );
 }
 
-// ---------- ServiceModal ----------
+// ---------- ServiceModal (real form) ----------
 export function ServiceModal({
   open,
   editing,
@@ -570,62 +879,380 @@ export function ServiceModal({
   onSaved,
 }: {
   open: boolean;
-  editing?: boolean;
+  editing?: MedicalService | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const toast = useToast();
+  const empty = {
+    name: '',
+    category: '',
+    description: '',
+    durationMinutes: 30,
+    price: 0,
+    isPriceVisible: true,
+    iconName: 'Stethoscope',
+    order: 1,
+    isApproved: true,
+    isVisible: true,
+  };
+  const [form, setForm] = useState<any>(empty);
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!open) return;
+    if (editing) {
+      setForm({
+        name: editing.name || '',
+        category: editing.category || '',
+        description: editing.description || '',
+        durationMinutes: editing.durationMinutes || 30,
+        price: editing.price ?? 0,
+        isPriceVisible: editing.isPriceVisible !== false,
+        iconName: editing.iconName || 'Stethoscope',
+        order: editing.order ?? 1,
+        isApproved: editing.isApproved !== false,
+        isVisible: editing.isVisible !== false,
+      });
+    } else {
+      setForm({ ...empty });
+    }
+    setErrors({});
+  }, [open, editing]);
+
+  const validate = (): boolean => {
+    const errs: Record<string, string> = {};
+    if (!form.name.trim()) errs.name = 'اسم الخدمة مطلوب';
+    if (!form.category.trim()) errs.category = 'فئة الخدمة مطلوبة';
+    if (!form.description.trim()) errs.description = 'الوصف مطلوب';
+    if (!form.durationMinutes || Number(form.durationMinutes) <= 0) errs.durationMinutes = 'المدة يجب أن تكون أكبر من صفر';
+    if (form.isPriceVisible && (!form.price || Number(form.price) < 0)) errs.price = 'السعر مطلوب عند تفعيل عرض السعر';
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleSave = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!validate()) return;
+    setSaving(true);
+    try {
+      const payload = {
+        name: form.name.trim(),
+        category: form.category.trim(),
+        description: form.description.trim(),
+        durationMinutes: Number(form.durationMinutes) || 30,
+        price: form.isPriceVisible ? Number(form.price) || 0 : 0,
+        isPriceVisible: !!form.isPriceVisible,
+        iconName: form.iconName || 'Stethoscope',
+        order: Number(form.order) || 1,
+        isApproved: !!form.isApproved,
+        isVisible: !!form.isVisible,
+      };
+      if (editing && editing.id) {
+        const r = await api.updateService(editing.id, payload);
+        if (!r.success) throw new Error((r as any).message || 'فشل التحديث');
+        toast.push({ kind: 'success', title: 'تم تحديث الخدمة' });
+      } else {
+        const r = await api.createService(payload as any);
+        if (!r.success) throw new Error((r as any).message || 'فشل الحفظ');
+        toast.push({ kind: 'success', title: 'تمت إضافة الخدمة', description: `تم إضافة ${payload.name} بنجاح` });
+      }
+      onSaved();
+    } catch (e: any) {
+      toast.push({ kind: 'error', title: 'فشل الحفظ', description: e?.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!open) return null;
   return (
-    <ConfirmDialog
-      open={true}
-      title="حفظ / حذف الخدمة"
-      description={editing ? 'هل تريد حفظ التغييرات؟' : 'هل تريد حذف هذه الخدمة؟'}
-      confirmLabel={editing ? 'حفظ' : 'حذف'}
-      danger={!editing}
-      loading={false}
-      onClose={() => onClose()}
-      onConfirm={() => onSaved()}
-    />
+    <FormModal open={true} title={editing ? 'تعديل الخدمة' : 'إضافة خدمة جديدة'} onClose={onClose} size="lg">
+      <form onSubmit={handleSave} className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="اسم الخدمة" required error={errors.name}>
+            <input className={inputCls} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="مثال: كشف استشاري عظام" />
+          </FormField>
+          <FormField label="الفئة / التخصص" required error={errors.category}>
+            <input className={inputCls} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="مثال: عظام" />
+          </FormField>
+        </div>
+        <FormField label="الوصف" required error={errors.description}>
+          <textarea className={inputCls} rows={3} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="وصف مختصر للخدمة..." />
+        </FormField>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="المدة (بالدقائق)" required error={errors.durationMinutes}>
+            <input type="number" min={1} className={inputCls} value={form.durationMinutes} onChange={e => setForm({ ...form, durationMinutes: Number(e.target.value) })} />
+          </FormField>
+          <FormField label="السعر (ج.م)" error={errors.price}>
+            <input type="number" min={0} className={inputCls} value={form.price} onChange={e => setForm({ ...form, price: Number(e.target.value) })} disabled={!form.isPriceVisible} />
+          </FormField>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="عرض السعر للمريض">
+            <select className={selectCls} value={form.isPriceVisible ? '1' : '0'} onChange={e => setForm({ ...form, isPriceVisible: e.target.value === '1' })}>
+              <option value="1">يظهر السعر (استشارة بسعر)</option>
+              <option value="0">إخفاء السعر (استشارة فقط)</option>
+            </select>
+          </FormField>
+          <FormField label="ترتيب العرض">
+            <input type="number" className={inputCls} value={form.order} onChange={e => setForm({ ...form, order: Number(e.target.value) })} />
+          </FormField>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="الحالة">
+            <select className={selectCls} value={form.isVisible ? '1' : '0'} onChange={e => setForm({ ...form, isVisible: e.target.value === '1' })}>
+              <option value="1">مرئي على الموقع</option>
+              <option value="0">مخفي</option>
+            </select>
+          </FormField>
+          <FormField label="الاعتماد">
+            <select className={selectCls} value={form.isApproved ? '1' : '0'} onChange={e => setForm({ ...form, isApproved: e.target.value === '1' })}>
+              <option value="1">معتمد</option>
+              <option value="0">قيد المراجعة</option>
+            </select>
+          </FormField>
+        </div>
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-[#1E4F5A]">
+          <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-[#123842] text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer">إلغاء</button>
+          <button type="submit" disabled={saving} className="px-5 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold disabled:opacity-50 cursor-pointer">
+            {saving ? 'جارِ الحفظ...' : editing ? 'حفظ التعديلات' : 'إضافة الخدمة'}
+          </button>
+        </div>
+      </form>
+    </FormModal>
   );
 }
 
-// ---------- ViewAppointmentModal ----------
+// ---------- FaqModal (real form) ----------
+export function FaqModal({
+  open,
+  editing,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  editing?: FAQItem | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const empty = { question: '', answer: '', category: 'عام', isApproved: true, order: 1 };
+  const [form, setForm] = useState<any>(empty);
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!open) return;
+    if (editing) {
+      setForm({
+        question: editing.question || '',
+        answer: editing.answer || '',
+        category: editing.category || 'عام',
+        isApproved: editing.isApproved !== false,
+        order: editing.order ?? 1,
+      });
+    } else {
+      setForm({ ...empty });
+    }
+    setErrors({});
+  }, [open, editing]);
+
+  const validate = (): boolean => {
+    const errs: Record<string, string> = {};
+    if (!form.question.trim()) errs.question = 'السؤال مطلوب';
+    if (!form.answer.trim()) errs.answer = 'الإجابة مطلوبة';
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleSave = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!validate()) return;
+    setSaving(true);
+    try {
+      const payload = {
+        question: form.question.trim(),
+        answer: form.answer.trim(),
+        category: form.category.trim() || 'عام',
+        isApproved: !!form.isApproved,
+        order: Number(form.order) || 1,
+      };
+      if (editing && editing.id) {
+        const r = await api.updateFaq(editing.id, payload);
+        if (!r.success) throw new Error((r as any).message || 'فشل التحديث');
+        toast.push({ kind: 'success', title: 'تم تحديث السؤال' });
+      } else {
+        const r = await api.createFaq(payload as any);
+        if (!r.success) throw new Error((r as any).message || 'فشل الحفظ');
+        toast.push({ kind: 'success', title: 'تمت إضافة السؤال' });
+      }
+      onSaved();
+    } catch (e: any) {
+      toast.push({ kind: 'error', title: 'فشل الحفظ', description: e?.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!open) return null;
+  return (
+    <FormModal open={true} title={editing ? 'تعديل السؤال' : 'إضافة سؤال شائع جديد'} onClose={onClose} size="md">
+      <form onSubmit={handleSave} className="space-y-4">
+        <FormField label="السؤال" required error={errors.question}>
+          <input className={inputCls} value={form.question} onChange={e => setForm({ ...form, question: e.target.value })} placeholder="مثال: ما هي مواعيد العمل؟" />
+        </FormField>
+        <FormField label="الإجابة" required error={errors.answer}>
+          <textarea className={inputCls} rows={4} value={form.answer} onChange={e => setForm({ ...form, answer: e.target.value })} placeholder="الإجابة المفصلة..." />
+        </FormField>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="الفئة">
+            <input className={inputCls} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="مثال: عام، حجز، أسعار" />
+          </FormField>
+          <FormField label="ترتيب العرض">
+            <input type="number" className={inputCls} value={form.order} onChange={e => setForm({ ...form, order: Number(e.target.value) })} />
+          </FormField>
+        </div>
+        <FormField label="الاعتماد">
+          <select className={selectCls} value={form.isApproved ? '1' : '0'} onChange={e => setForm({ ...form, isApproved: e.target.value === '1' })}>
+            <option value="1">معتمد ويظهر على الموقع</option>
+            <option value="0">قيد المراجعة</option>
+          </select>
+        </FormField>
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-[#1E4F5A]">
+          <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-[#123842] text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer">إلغاء</button>
+          <button type="submit" disabled={saving} className="px-5 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold disabled:opacity-50 cursor-pointer">
+            {saving ? 'جارِ الحفظ...' : editing ? 'حفظ التعديلات' : 'إضافة السؤال'}
+          </button>
+        </div>
+      </form>
+    </FormModal>
+  );
+}
+
+// ---------- ViewAppointmentModal (full record in modal) ----------
 export function ViewAppointmentModal({
+  open,
   appointment,
   loading,
   onClose,
   onChanged,
 }: {
+  open: boolean;
   appointment: any;
   loading: boolean;
   onClose?: () => void;
   onChanged?: (a: Appointment) => void;
 }) {
-  if (loading) return <p className="text-center text-slate-500">جارٍ تحميل الحجز...</p>;
-  if (!appointment) return null;
-  return (
-    <div className="p-4">
-      <h3 className="font-bold text-slate-800 dark:text-white mb-3">تفاصيل الحجز</h3>
-      <p className="text-sm text-slate-600 dark:text-slate-300" dir="ltr">{appointment.patientName}</p>
-      <p className="text-sm text-slate-600 dark:text-slate-300" dir="ltr">{appointment.appointmentDate}</p>
-      <p className="text-sm text-slate-600 dark:text-slate-300" dir="ltr">{appointment.appointmentTime}</p>
-      <p className="text-sm text-slate-600 dark:text-slate-300" dir="ltr">{appointment.serviceName}</p>
-      {onClose && (
-        <div className="mt-4 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-slate-200 dark:bg-slate-700 text-sm"
-          >
-            إغلاق
-          </button>
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose?.(); };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', h);
+    return () => { document.body.style.overflow = 'unset'; window.removeEventListener('keydown', h); };
+  }, [open, onClose]);
+
+  if (!open) return null;
+  if (loading) {
+    return (
+      <div className="fixed inset-0 z-[80] overflow-y-auto">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs" onClick={onClose} />
+        <div className="flex min-h-full items-center justify-center p-4">
+          <div className="relative w-full max-w-2xl rounded-3xl bg-white dark:bg-[#10333C] border border-slate-100 dark:border-[#1E4F5A] shadow-2xl p-8 text-center">
+            <Loader2 className="w-6 h-6 text-teal-600 animate-spin mx-auto mb-2" />
+            <p className="text-sm text-slate-500">جارٍ تحميل تفاصيل الحجز...</p>
+          </div>
         </div>
-      )}
+      </div>
+    );
+  }
+  if (!appointment) return null;
+
+  const apt: any = appointment;
+  const fields: { label: string; value: React.ReactNode }[] = [
+    { label: 'كود الحجز', value: <span className="font-mono font-bold text-teal-600 dark:text-teal-400">{apt.bookingNumber}</span> },
+    { label: 'حالة الحجز', value: <StatusBadge status={apt.status} /> },
+    { label: 'اسم المريض', value: <span className="font-bold">{apt.patientName}</span> },
+    { label: 'رقم الهاتف', value: <span className="font-mono" dir="ltr">{apt.patientPhone}</span> },
+    { label: 'البريد الإلكتروني', value: <span className="font-mono" dir="ltr">{apt.patientEmail || '—'}</span> },
+    { label: 'السن', value: <span>{apt.patientAge != null ? `${apt.patientAge} سنة` : '—'}</span> },
+    { label: 'النوع', value: <span>{apt.patientGender === 'male' ? 'ذكر' : apt.patientGender === 'female' ? 'أنثى' : '—'}</span> },
+    { label: 'الخدمة', value: <span>{apt.serviceName || '—'}</span> },
+    { label: 'الفرع', value: <span>{apt.branchName || '—'}</span> },
+    { label: 'تاريخ الموعد', value: <span>{formatArabicDate(apt.appointmentDate)}</span> },
+    { label: 'وقت الموعد', value: <span className="font-mono font-bold text-teal-600 dark:text-teal-400">{formatTime12h(apt.appointmentTime)}</span> },
+    { label: 'طريقة التأكيد', value: <span>{apt.confirmationMethod === 'whatsapp' ? 'واتساب' : apt.confirmationMethod === 'sms' ? 'رسالة قصيرة' : apt.confirmationMethod === 'call' ? 'مكالمة' : apt.confirmationMethod || '—'}</span> },
+    { label: 'تاريخ الإنشاء', value: <span className="font-mono text-[11px]">{apt.createdAt ? new Date(apt.createdAt).toLocaleString('ar-EG') : '—'}</span> },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[80] overflow-y-auto">
+      <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs" onClick={onClose} />
+      <div className="flex min-h-full items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 14, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          className="relative w-full max-w-2xl rounded-3xl bg-white dark:bg-[#10333C] border border-slate-100 dark:border-[#1E4F5A] shadow-2xl text-right overflow-hidden my-8"
+        >
+          <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-slate-100 dark:border-[#1E4F5A]">
+            <div>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white font-tajawal">تفاصيل الحجز كاملة</h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">عرض جميع بيانات الحجز والمريض</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-[#123842] dark:hover:text-slate-200 transition-colors cursor-pointer"
+              aria-label="إغلاق"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="p-6 max-h-[70vh] overflow-y-auto">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {fields.map((f, i) => (
+                <div key={i} className="rounded-xl border border-slate-100 dark:border-[#1E4F5A] bg-slate-50/50 dark:bg-[#123842]/40 p-3">
+                  <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">{f.label}</p>
+                  <div className="text-sm text-slate-800 dark:text-slate-100 break-words">{f.value}</div>
+                </div>
+              ))}
+            </div>
+            {apt.notes && (
+              <div className="mt-4 rounded-xl border border-slate-100 dark:border-[#1E4F5A] bg-slate-50/50 dark:bg-[#123842]/40 p-3">
+                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">ملاحظات المريض</p>
+                <p className="text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap">{apt.notes}</p>
+              </div>
+            )}
+            {apt.clinicInternalNotes && (
+              <div className="mt-3 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-950/20 p-3">
+                <p className="text-[11px] font-bold text-amber-700 dark:text-amber-300 mb-1">ملاحظات العيادة (داخلية)</p>
+                <p className="text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap">{apt.clinicInternalNotes}</p>
+              </div>
+            )}
+            {apt.cancellationReason && (
+              <div className="mt-3 rounded-xl border border-rose-200 dark:border-rose-900/40 bg-rose-50/40 dark:bg-rose-950/20 p-3">
+                <p className="text-[11px] font-bold text-rose-700 dark:text-rose-300 mb-1">سبب الإلغاء</p>
+                <p className="text-sm text-slate-800 dark:text-slate-100">{apt.cancellationReason}</p>
+              </div>
+            )}
+          </div>
+          <div className="px-6 pb-5 pt-2 border-t border-slate-100 dark:border-[#1E4F5A] flex items-center justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-5 py-2.5 rounded-xl bg-slate-100 dark:bg-[#123842] text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer"
+            >
+              إغلاق
+            </button>
+          </div>
+        </motion.div>
+      </div>
     </div>
   );
 }
 
-// ---------- HistoryModal ----------
+// ---------- HistoryModal (full patient history in modal) ----------
 export function HistoryModal({
   open,
   patient,
@@ -639,33 +1266,98 @@ export function HistoryModal({
   loading: boolean;
   onClose?: () => void;
 }) {
-  if (loading) return <p className="text-center text-slate-500">جارٍ تحميل البيانات...</p>;
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose?.(); };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', h);
+    return () => { document.body.style.overflow = 'unset'; window.removeEventListener('keydown', h); };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const apts: Appointment[] = appointments || [];
   return (
-    <div className="p-4 max-h-80 overflow-y-auto">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-bold text-slate-800 dark:text-white">سجل الحجوزات</h3>
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600"
-          >
-            ✕
-          </button>
-        )}
-      </div>
-      {appointments.length === 0 ? (
-        <p className="text-sm text-slate-500">لا توجد حجوزات مسجلة</p>
-      ) : (
-        <div className="space-y-1">
-          {appointments.map((a: Appointment, i: number) => (
-            <div key={i} className="p-2 rounded bg-slate-50 dark:bg-[#123842]/40">
-              <p className="text-xs text-slate-500" dir="ltr">{a.appointmentDate} {a.appointmentTime}</p>
-              <p className="text-xs text-slate-600 dark:text-slate-300" dir="ltr">{a.serviceName}</p>
+    <div className="fixed inset-0 z-[80] overflow-y-auto">
+      <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs" onClick={onClose} />
+      <div className="flex min-h-full items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 14, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          className="relative w-full max-w-3xl rounded-3xl bg-white dark:bg-[#10333C] border border-slate-100 dark:border-[#1E4F5A] shadow-2xl text-right overflow-hidden my-8"
+        >
+          <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-slate-100 dark:border-[#1E4F5A]">
+            <div>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white font-tajawal">السجل الكامل للمريض</h3>
+              {patient && (
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {patient.name} · <span dir="ltr" className="font-mono">{patient.phone}</span>
+                </p>
+              )}
             </div>
-          ))}
-        </div>
-      )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-[#123842] dark:hover:text-slate-200 transition-colors cursor-pointer"
+              aria-label="إغلاق"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="p-6 max-h-[70vh] overflow-y-auto">
+            {loading ? (
+              <div className="py-10 text-center">
+                <Loader2 className="w-6 h-6 text-teal-600 animate-spin mx-auto mb-2" />
+                <p className="text-sm text-slate-500">جارٍ تحميل السجل...</p>
+              </div>
+            ) : (
+              <>
+                {patient && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+                    <div className="rounded-xl border border-slate-100 dark:border-[#1E4F5A] bg-slate-50/50 dark:bg-[#123842]/40 p-3">
+                      <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">الاسم</p>
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{patient.name || '—'}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-100 dark:border-[#1E4F5A] bg-slate-50/50 dark:bg-[#123842]/40 p-3">
+                      <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">الهاتف</p>
+                      <p className="text-sm font-mono text-slate-800 dark:text-slate-100" dir="ltr">{patient.phone || '—'}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-100 dark:border-[#1E4F5A] bg-slate-50/50 dark:bg-[#123842]/40 p-3">
+                      <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">إجمالي الزيارات</p>
+                      <p className="text-sm font-bold text-teal-600 dark:text-teal-400">{patient.totalBookings ?? apts.length} زيارة</p>
+                    </div>
+                  </div>
+                )}
+                {apts.length === 0 ? (
+                  <p className="text-sm text-slate-500 text-center py-6">لا توجد حجوزات مسجلة لهذا المريض.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {apts.map((a, i) => (
+                      <div key={i} className="p-3 rounded-xl border border-slate-100 dark:border-[#1E4F5A] bg-slate-50/50 dark:bg-[#123842]/40 flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold text-slate-800 dark:text-slate-100">{a.serviceName || '—'}</p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400" dir="ltr">{formatArabicDate(a.appointmentDate)} · {formatTime12h(a.appointmentTime)}</p>
+                          {a.branchName && <p className="text-[11px] text-slate-400">📍 {a.branchName}</p>}
+                        </div>
+                        <StatusBadge status={a.status} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <div className="px-6 pb-5 pt-2 border-t border-slate-100 dark:border-[#1E4F5A] flex items-center justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-5 py-2.5 rounded-xl bg-slate-100 dark:bg-[#123842] text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer"
+            >
+              إغلاق
+            </button>
+          </div>
+        </motion.div>
+      </div>
     </div>
   );
 }

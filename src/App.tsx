@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ThemeProvider } from './context/ThemeContext.tsx';
 import { AuthProvider, useAuth } from './context/AuthContext.tsx';
 import { Navbar } from './components/layout/Navbar.tsx';
@@ -20,36 +20,144 @@ import { PatientPortalView } from './views/PatientPortalView.tsx';
 import { AdminApp, AdminPageKey } from './components/admin/shell.tsx';
 import { AuthModal } from './views/AuthModal.tsx';
 
+/* ============================================================
+   URL-based routing — replaces the old in-memory useState approach.
+   The browser URL is the source of truth; refreshing restores the same view.
+   ============================================================ */
+
+type PublicView =
+  | 'home'
+  | 'doctor'
+  | 'services'
+  | 'branches'
+  | 'faqs'
+  | 'policies'
+  | 'patient-portal'
+  | 'booking';
+
+const PUBLIC_PATHS: Record<string, PublicView> = {
+  '': 'home',
+  '/': 'home',
+  '/home': 'home',
+  '/doctor': 'doctor',
+  '/services': 'services',
+  '/branches': 'branches',
+  '/faqs': 'faqs',
+  '/policies': 'policies',
+  '/patient-portal': 'patient-portal',
+  '/booking': 'booking',
+};
+
+const PUBLIC_PATH_LIST: PublicView[] = [
+  'home', 'doctor', 'services', 'branches', 'faqs', 'policies', 'patient-portal', 'booking',
+];
+
+const VALID_ADMIN_PAGES: AdminPageKey[] = [
+  'dashboard', 'appointments', 'patients', 'branches',
+  'services', 'working-hours', 'cms', 'users',
+];
+
+function pathToView(pathname: string): { view: 'admin' | PublicView; bookingParams: { branchId?: string; serviceId?: string } } {
+  // Admin: /admin/<page>
+  if (pathname === '/admin' || pathname === '/admin/') {
+    return { view: 'admin', bookingParams: {} };
+  }
+  const adminMatch = pathname.match(/^\/admin\/([a-z-]+)\/?$/);
+  if (adminMatch && VALID_ADMIN_PAGES.includes(adminMatch[1] as AdminPageKey)) {
+    return { view: 'admin', bookingParams: {} };
+  }
+  // Booking: /booking?branchId=...&serviceId=...
+  if (pathname === '/booking' || pathname === '/booking/') {
+    const sp = new URLSearchParams(window.location.search);
+    return {
+      view: 'booking',
+      bookingParams: {
+        branchId: sp.get('branchId') || undefined,
+        serviceId: sp.get('serviceId') || undefined,
+      },
+    };
+  }
+  const publicMatch = PUBLIC_PATHS[pathname];
+  if (publicMatch) {
+    return { view: publicMatch, bookingParams: {} };
+  }
+  return { view: 'home', bookingParams: {} };
+}
+
+function viewToPath(view: string, adminPage?: AdminPageKey, bookingParams?: { branchId?: string; serviceId?: string }): string {
+  if (view === 'admin') {
+    const p = adminPage && VALID_ADMIN_PAGES.includes(adminPage) ? adminPage : 'dashboard';
+    return `/admin/${p}`;
+  }
+  if (view === 'booking') {
+    const sp = new URLSearchParams();
+    if (bookingParams?.branchId) sp.set('branchId', bookingParams.branchId);
+    if (bookingParams?.serviceId) sp.set('serviceId', bookingParams.serviceId);
+    const q = sp.toString();
+    return `/booking${q ? `?${q}` : ''}`;
+  }
+  for (const [path, v] of Object.entries(PUBLIC_PATHS)) {
+    if (v === view && view !== 'booking') return path || '/';
+  }
+  return '/';
+}
+
 function MainApp() {
   const { user, isStaff } = useAuth();
 
-  // Admin navigation state - uses AdminPageKey from shell
-  const [adminPage, setAdminPage] = useState<AdminPageKey>('dashboard');
-
-  // Public app navigation state
-  const [currentView, setCurrentView] = useState<string>('home');
-  const [bookingParams, setBookingParams] = useState<{
-    branchId?: string;
-    serviceId?: string;
-  }>({});
+  // Routing state is derived from the URL. The history API is the source of truth.
+  const [currentView, setCurrentView] = useState<string>(() => pathToView(window.location.pathname).view);
+  const [adminPage, setAdminPage] = useState<AdminPageKey>(() => {
+    const r = pathToView(window.location.pathname);
+    if (r.view === 'admin') {
+      const m = window.location.pathname.match(/^\/admin\/([a-z-]+)\/?$/);
+      if (m && VALID_ADMIN_PAGES.includes(m[1] as AdminPageKey)) return m[1] as AdminPageKey;
+      return 'dashboard';
+    }
+    return 'dashboard';
+  });
+  const [bookingParams, setBookingParams] = useState<{ branchId?: string; serviceId?: string }>(() => pathToView(window.location.pathname).bookingParams);
 
   // Auth modal state
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authInitialTab, setAuthInitialTab] = useState<'login' | 'register'>('login');
 
-  const handleNavigate = (view: string, params?: any) => {
-    if (params) {
-      setBookingParams(params);
+  // Sync state from URL on popstate (back/forward, refresh already initialized state)
+  useEffect(() => {
+    const onPop = () => {
+      const r = pathToView(window.location.pathname);
+      setCurrentView(r.view);
+      if (r.view === 'admin') {
+        const m = window.location.pathname.match(/^\/admin\/([a-z-]+)\/?$/);
+        setAdminPage(m && VALID_ADMIN_PAGES.includes(m[1] as AdminPageKey) ? (m[1] as AdminPageKey) : 'dashboard');
+      }
+      if (r.view === 'booking') {
+        setBookingParams(r.bookingParams);
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  const navigate = useCallback((view: string, params?: { branchId?: string; serviceId?: string }) => {
+    if (params) setBookingParams(params);
+    const newPath = viewToPath(view, undefined, params);
+    if (window.location.pathname + window.location.search !== newPath) {
+      window.history.pushState({}, '', newPath);
     }
     setCurrentView(view);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, []);
 
-  const handleAdminNavigate = (page: AdminPageKey) => {
+  const handleAdminNavigate = useCallback((page: AdminPageKey) => {
+    const newPath = viewToPath('admin', page);
+    if (window.location.pathname !== newPath) {
+      window.history.pushState({}, '', newPath);
+    }
     setAdminPage(page);
-    // Scroll to top when navigating within admin
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, []);
 
   const handleOpenAuth = (tab: 'login' | 'register' = 'login') => {
     setAuthInitialTab(tab);
@@ -65,12 +173,14 @@ function MainApp() {
         الانتقال إلى المحتوى الرئيسي
       </a>
 
-      {/* Navigation Header */}
-      <Navbar
-        currentView={currentView}
-        onNavigate={handleNavigate}
-        onOpenAuth={handleOpenAuth}
-      />
+      {/* Navigation Header — hidden when inside the Admin Dashboard */}
+      {currentView !== 'admin' && (
+        <Navbar
+          currentView={currentView}
+          onNavigate={navigate}
+          onOpenAuth={handleOpenAuth}
+        />
+      )}
 
       {/* Main Content Area */}
       <main id="main-content" className="flex-1 pb-20 md:pb-0">
@@ -82,17 +192,17 @@ function MainApp() {
         {/* Public-facing Views */}
         {currentView === 'home' && (
           <HomeView
-            onNavigate={handleNavigate}
-            onOpenBookingWithService={(serviceId) => handleNavigate('booking', { serviceId })}
+            onNavigate={navigate}
+            onOpenBookingWithService={(serviceId) => navigate('booking', { serviceId })}
           />
         )}
 
         {currentView === 'doctor' && (
-          <DoctorProfileView onNavigate={handleNavigate} />
+          <DoctorProfileView onNavigate={navigate} />
         )}
 
         {currentView === 'services' && (
-          <ServicesView onNavigate={handleNavigate} />
+          <ServicesView onNavigate={navigate} />
         )}
 
         {currentView === 'booking' && (
@@ -100,16 +210,16 @@ function MainApp() {
             key={`${bookingParams.branchId || ''}-${bookingParams.serviceId || ''}`}
             initialBranchId={bookingParams.branchId}
             initialServiceId={bookingParams.serviceId}
-            onNavigate={handleNavigate}
+            onNavigate={navigate}
           />
         )}
 
         {currentView === 'branches' && (
-          <BranchesView onNavigate={handleNavigate} />
+          <BranchesView onNavigate={navigate} />
         )}
 
         {currentView === 'faqs' && (
-          <FaqView onNavigate={handleNavigate} />
+          <FaqView onNavigate={navigate} />
         )}
 
         {currentView === 'policies' && (
@@ -118,7 +228,7 @@ function MainApp() {
 
         {currentView === 'patient-portal' && (
           <PatientPortalView
-            onNavigate={handleNavigate}
+            onNavigate={navigate}
             onOpenAuth={handleOpenAuth}
           />
         )}
@@ -144,13 +254,13 @@ function MainApp() {
       </main>
 
       {/* Medical Platform Footer */}
-      {currentView !== 'admin' && <Footer onNavigate={handleNavigate} />}
+      {currentView !== 'admin' && <Footer onNavigate={navigate} />}
 
       {/* Mobile Fixed Bottom Bar */}
       {currentView !== 'admin' && (
         <MobileBottomNav
           currentView={currentView}
-          onNavigate={handleNavigate}
+          onNavigate={navigate}
           onOpenAuth={handleOpenAuth}
         />
       )}
@@ -179,3 +289,6 @@ export default function App() {
     </ThemeProvider>
   );
 }
+
+// Suppress unused-var for the constant list — kept for future extensibility
+void PUBLIC_PATH_LIST;

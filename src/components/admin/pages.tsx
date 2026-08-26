@@ -12,11 +12,12 @@ import {
   Clock as ClockIcon,
   TrendingUp,
   BadgeCheck,
+  UserCog,
 } from 'lucide-react';
 import { api } from '../../services/api.ts';
 import { useAuth } from '../../context/AuthContext.tsx';
 import { useAdminCtx } from './shell.tsx';
-import { formatArabicDate, formatArabicTime, getTodayDateString, getDayOfWeekArabic } from '../../utils/date.ts';
+import { formatArabicDate, formatArabicTime, formatTime12h, getTodayDateString, getDayOfWeekArabic } from '../../utils/date.ts';
 import type {
   Appointment,
   Branch,
@@ -103,6 +104,25 @@ export function Dashboard() {
 
   return (
     <div>
+      {/* First section: Quick Actions */}
+      <div className="surface-card rounded-2xl p-5 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base font-extrabold text-slate-900 dark:text-white font-tajawal">إجراءات سريعة</h2>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">وصول مباشر للأقسام الأكثر استخداماً</p>
+          </div>
+          <span className="text-[10px] font-bold text-teal-600 dark:text-teal-400 uppercase tracking-wider">الوصول السريع</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+          <QuickAction label="الحجوزات" hint="إدارة المواعيد" icon={Calendar} tone="teal" onClick={() => navigate('appointments')} />
+          <QuickAction label="المرضى" hint="الملفات والسجلات" icon={UsersIcon} tone="emerald" onClick={() => navigate('patients')} />
+          <QuickAction label="الخدمات" hint="الأسعار والتخصصات" icon={Stethoscope} tone="amber" onClick={() => navigate('services')} />
+          <QuickAction label="الفروع" hint="العناوين والمواعيد" icon={Building2} tone="slate" onClick={() => navigate('branches')} />
+          <QuickAction label="مواعيد العمل" hint="الإجازات والاستثناءات" icon={ClockIcon} tone="teal" onClick={() => navigate('working-hours')} />
+          <QuickAction label="محتوى الموقع" hint="الإعلانات والتقييمات" icon={FileEdit} tone="coral" onClick={() => navigate('cms')} />
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <StatCard label="مواعيد اليوم" value={s.todayBookings ?? 0} hint={formatArabicDate(getTodayDateString())} icon={Calendar} tone="teal" />
         <StatCard label="مواعيد الأسبوع" value={s.weeklyBookings ?? 0} icon={TrendingUp} tone="emerald" />
@@ -117,36 +137,23 @@ export function Dashboard() {
         <MiniStat label="تم الكشف" value={s.completedBookings ?? 0} cls="bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-200" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <WidgetBox title="توزيع المواعيد حسب الفرع">
-          {!Array.isArray(s.branchBreakdown) || s.branchBreakdown.length === 0 ? (
-            <EmptyState title="لا بيانات" description="لا توجد مواعيد بعد لمحاولة التوزيع." />
-          ) : (
-            <div className="space-y-3">
-              {s.branchBreakdown.map(b => (
-                <div key={b.branchName} className="flex items-center gap-3">
-                  <span className="text-xs font-bold text-slate-700 dark:text-slate-200 w-28 truncate">{b.branchName}</span>
-                  <div className="flex-1 h-2.5 rounded-full bg-slate-100 dark:bg-[#123842] overflow-hidden">
-                    <div className="h-full rounded-full bg-teal-500 dark:bg-teal-400" style={{ width: `${barWidth(b.count, s.branchBreakdown)}%` }} />
-                  </div>
-                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300 w-8 text-left">{b.count}</span>
+      <WidgetBox title="توزيع المواعيد حسب الفرع">
+        {!Array.isArray(s.branchBreakdown) || s.branchBreakdown.length === 0 ? (
+          <EmptyState title="لا بيانات" description="لا توجد مواعيد بعد لمحاولة التوزيع." />
+        ) : (
+          <div className="space-y-3">
+            {s.branchBreakdown.map(b => (
+              <div key={b.branchName} className="flex items-center gap-3">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 w-28 truncate">{b.branchName}</span>
+                <div className="flex-1 h-2.5 rounded-full bg-slate-100 dark:bg-[#123842] overflow-hidden">
+                  <div className="h-full rounded-full bg-teal-500 dark:bg-teal-400" style={{ width: `${barWidth(b.count, s.branchBreakdown)}%` }} />
                 </div>
-              ))}
-            </div>
-          )}
-        </WidgetBox>
-
-        <WidgetBox title="إجراءات سريعة">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <QuickAction label="الحجوزات" icon={Calendar} onClick={() => navigate('appointments')} />
-            <QuickAction label="المرضى" icon={UsersIcon} onClick={() => navigate('patients')} />
-            <QuickAction label="الخدمات" icon={Stethoscope} onClick={() => navigate('services')} />
-            <QuickAction label="الفروع" icon={Building2} onClick={() => navigate('branches')} />
-            <QuickAction label="المواعيد" icon={ClockIcon} onClick={() => navigate('working-hours')} />
-            <QuickAction label="المحتوى" icon={FileEdit} onClick={() => navigate('cms')} />
+                <span className="text-xs font-bold text-slate-600 dark:text-slate-300 w-8 text-left">{b.count}</span>
+              </div>
+            ))}
           </div>
-        </WidgetBox>
-      </div>
+        )}
+      </WidgetBox>
     </div>
   );
 }
@@ -167,12 +174,26 @@ function WidgetBox({ title, children }: { title: string; children: React.ReactNo
     </div>
   );
 }
-function QuickAction({ label, icon: Icon, onClick }: { label: string; icon: React.ElementType; onClick: () => void }) {
+function QuickAction({ label, icon: Icon, onClick, hint, tone = 'teal' }: { label: string; icon: React.ElementType; onClick: () => void; hint?: string; tone?: 'teal' | 'coral' | 'emerald' | 'amber' | 'slate' }) {
+  const toneCls: Record<string, string> = {
+    teal: 'from-teal-500/15 to-teal-500/0 text-teal-700 dark:text-teal-300 group-hover:from-teal-500/25',
+    coral: 'from-[#E05A47]/15 to-[#E05A47]/0 text-[#E05A47] dark:text-[#f27463] group-hover:from-[#E05A47]/25',
+    emerald: 'from-emerald-500/15 to-emerald-500/0 text-emerald-700 dark:text-emerald-300 group-hover:from-emerald-500/25',
+    amber: 'from-amber-500/15 to-amber-500/0 text-amber-700 dark:text-amber-300 group-hover:from-amber-500/25',
+    slate: 'from-slate-500/10 to-slate-500/0 text-slate-700 dark:text-slate-300 group-hover:from-slate-500/20',
+  };
   return (
-    <button type="button" onClick={onClick}
-      className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1E4F5A] hover:bg-teal-50 dark:hover:bg-teal-900/20 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors cursor-pointer">
-      <Icon className="w-5 h-5 text-teal-600 dark:text-teal-400" />
-      {label}
+    <button
+      type="button"
+      onClick={onClick}
+      className="group relative overflow-hidden flex flex-col items-start gap-2 p-4 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200 dark:border-[#1E4F5A] hover:border-teal-400 dark:hover:border-teal-500 hover:shadow-md text-slate-800 dark:text-slate-100 cursor-pointer transition-all"
+    >
+      <span className={`absolute inset-0 bg-gradient-to-br ${toneCls[tone]} opacity-100 transition-opacity`} aria-hidden />
+      <span className="relative w-10 h-10 rounded-xl bg-white dark:bg-[#123842] border border-slate-200/70 dark:border-[#1E4F5A] flex items-center justify-center shadow-xs">
+        <Icon className="w-5 h-5" />
+      </span>
+      <span className="relative text-sm font-extrabold">{label}</span>
+      {hint && <span className="relative text-[11px] text-slate-500 dark:text-slate-400">{hint}</span>}
     </button>
   );
 }
@@ -366,7 +387,7 @@ export function Appointments() {
           </>
         )}
 
-      <ViewAppointmentModal appointment={viewing} loading={false}
+      <ViewAppointmentModal open={!!viewing} appointment={viewing} loading={false}
         onClose={() => setViewing(null)}
         onChanged={(a) => { setViewing(null); load(); toast.push({ kind: 'success', title: 'تم تحديث الحالة' }); void a; }} />
 
@@ -423,6 +444,8 @@ export function Patients() {
   const [search, setSearch] = useState('');
   const [confirmDeactivate, setConfirmDeactivate] = useState<any>(null);
   const [deactivating, setDeactivating] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
   const [historyPatient, setHistoryPatient] = useState<any>(null);
   const [history, setHistory] = useState<Appointment[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -468,6 +491,33 @@ export function Patients() {
       setConfirmDeactivate(null); load();
     } catch (e: any) { toast.push({ kind: 'error', title: 'فشلت العملية', description: e.message }); }
     finally { setDeactivating(false); }
+  };
+
+  // Permanently delete a registered patient (users/{uid} doc). Guest patients
+  // (no account) cannot be deleted since the only record of them is the
+  // appointment history, which we preserve for the booking record.
+  const doDelete = async () => {
+    if (!confirmDelete) return;
+    if (!confirmDelete.isRegistered || !confirmDelete.uid) {
+      toast.push({ kind: 'info', title: 'زائر غير مسجل', description: 'لا يوجد حساب مرتبط بهذا المريض لحذفه.' });
+      setConfirmDelete(null);
+      return;
+    }
+    setDeleting(true);
+    try {
+      await api.deletePatient(confirmDelete.uid);
+      toast.push({ kind: 'success', title: 'تم حذف المريض', description: 'تم حذف حساب المريض نهائياً. سجل المواعيد يبقى محفوظاً.' });
+      // If the deleted patient is currently open in the history modal, close it
+      if (historyPatient && historyPatient.uid === confirmDelete.uid) {
+        setHistoryPatient(null);
+      }
+      setConfirmDelete(null);
+      load();
+    } catch (e: any) {
+      toast.push({ kind: 'error', title: 'فشل الحذف', description: e?.message || 'حدث خطأ غير متوقع' });
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -525,13 +575,22 @@ export function Patients() {
                       <Eye className="w-3.5 h-3.5" /> عرض السجل
                     </button>
                     {isSuperAdmin && p.isRegistered && (
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDeactivate(p)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 text-[11px] font-bold hover:bg-rose-100 cursor-pointer"
-                      >
-                        <Minus className="w-3.5 h-3.5" /> تعطيل
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeactivate(p)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-[11px] font-bold hover:bg-amber-100 cursor-pointer"
+                        >
+                          <Minus className="w-3.5 h-3.5" /> تعطيل
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDelete(p)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 text-[11px] font-bold hover:bg-rose-100 cursor-pointer"
+                        >
+                          <Minus className="w-3.5 h-3.5" /> حذف
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -553,7 +612,10 @@ export function Patients() {
                   <div onClick={e => e.stopPropagation()}>
                     <DropdownMenu align="left" items={[
                       { label: 'عرض السجل', icon: Eye, onClick: () => openHistory(p) },
-                      ...(isSuperAdmin && p.isRegistered ? [{ label: 'تعطيل الحساب', icon: Minus, danger: true as const, onClick: () => setConfirmDeactivate(p) }] : []),
+                      ...(isSuperAdmin && p.isRegistered ? [
+                        { label: 'تعطيل الحساب', icon: Minus, onClick: () => setConfirmDeactivate(p) },
+                        { label: 'حذف نهائي', icon: Minus, danger: true as const, onClick: () => setConfirmDelete(p) },
+                      ] : []),
                     ]} />
                   </div>
                 )}
@@ -565,6 +627,14 @@ export function Patients() {
       <ConfirmDialog open={!!confirmDeactivate} title="إيقاف تنشيط الحساب؟" danger confirmLabel="إيقاف التنشيط"
         description={confirmDeactivate ? <>هل تريد إيقاف تنشيط حساب <b>{confirmDeactivate.name}</b>؟ لن يتمكن من تسجيل الدخول ولن يظهر في دليل المرضى، مع الإبقاء على سجل مواعيده.</> : null}
         loading={deactivating} onConfirm={doDeactivate} onClose={() => setConfirmDeactivate(null)} />
+
+      <ConfirmDialog open={!!confirmDelete} title="حذف المريض نهائياً؟" danger confirmLabel="حذف الحساب"
+        description={confirmDelete ? (
+          confirmDelete.isRegistered
+            ? <>سيتم حذف حساب <b>{confirmDelete.name}</b> نهائياً من النظام. لن يستطيع تسجيل الدخول بعد ذلك. <br /><br /><span className="text-[11px] text-slate-400">ملاحظة: سجل المواعيد يبقى محفوظاً للحفاظ على التقارير.</span></>
+            : <>هذا المريض <b>{confirmDelete.name}</b> زائر وليس لديه حساب على النظام، لذا لا يمكن حذفه من هنا. سجل المواعيد يبقى محفوظاً بشكل دائم.</>
+        ) : null}
+        loading={deleting} onConfirm={doDelete} onClose={() => setConfirmDelete(null)} />
 
       <HistoryModal open={!!historyPatient} patient={historyPatient} loading={historyLoading} appointments={history}
         onClose={() => setHistoryPatient(null)} />
@@ -853,7 +923,7 @@ export function WorkingHours() {
                     ) : (
                       <div className="flex items-center gap-2">
                         {r.isOpen ? (
-                          <span className="text-xs font-bold text-teal-700 dark:text-teal-300 font-mono">{r.startTime} – {r.endTime}</span>
+                          <span className="text-xs font-bold text-teal-700 dark:text-teal-300 font-mono">{formatTime12h(r.startTime)} – {formatTime12h(r.endTime)}</span>
                         ) : <Pill label="مغلق" tone="slate" />}
                         {isSuperAdmin && (
                           <button type="button" onClick={() => { setEditForm({ isOpen: r.isOpen, startTime: r.startTime, endTime: r.endTime }); setEditingDay(r); }} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-[#123842] cursor-pointer" aria-label="تعديل">
@@ -877,7 +947,7 @@ export function WorkingHours() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <Pill tone={ex.type === 'holiday' ? 'coral' : ex.type === 'off_day' ? 'slate' : 'amber'} label={ex.type === 'holiday' ? 'عطلة رسمية' : ex.type === 'off_day' ? 'إجازة يوم' : 'ساعات خاصة'} />
                         <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{formatArabicDate(ex.date)}</span>
-                        {ex.startTime && ex.endTime && <span className="text-[11px] text-slate-400 font-mono">{ex.startTime}–{ex.endTime}</span>}
+                        {ex.startTime && ex.endTime && <span className="text-[11px] text-slate-400 font-mono">{formatTime12h(ex.startTime)}–{formatTime12h(ex.endTime)}</span>}
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{ex.reason}</p>
                     </div>
@@ -982,10 +1052,10 @@ function AnnouncementsPanel({ toast }: { toast: ReturnType<typeof useToast> }) {
           {items.map(a => (
             <div key={a.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 dark:border-[#17424C] bg-slate-50/40 dark:bg-[#123842]/40">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-slate-800 dark:text-white truncate">{a.text}</p>
+                <p className="text-sm font-bold text-slate-800 dark:text-white truncate">{a.message}</p>
                 <div className="flex items-center gap-2 mt-1">
                   <Pill tone={a.isActive ? 'emerald' : 'slate'} label={a.isActive ? 'نشط' : 'متوقف'} />
-                  <Pill tone={a.priority === 'high' ? 'coral' : a.priority === 'medium' ? 'amber' : 'teal'} label={a.priority === 'high' ? 'أولوية عالية' : a.priority === 'medium' ? 'متوسط' : 'عادي'} />
+                  <Pill tone={a.type === 'alert' ? 'coral' : a.type === 'success' ? 'emerald' : 'teal'} label={a.type === 'alert' ? 'تنبيه' : a.type === 'success' ? 'نجاح' : 'معلومة'} />
                 </div>
               </div>
               <div className="flex items-center gap-1">
@@ -1201,6 +1271,7 @@ export function UsersPage() {
   const [editing, setEditing] = useState<User | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<User | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [mobileView, setMobileView] = useState<'cards' | 'table'>('cards');
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -1231,27 +1302,88 @@ export function UsersPage() {
 
   return (
     <div>
-      <div className="surface-card rounded-2xl p-4 mb-4 flex items-center justify-between gap-3">
-        <SearchBar value={search} onChange={setSearch} placeholder="ابحث بالاسم أو الهاتف..." />
-        <button type="button" onClick={() => { setEditing(null); setModal(true); }} className="px-3 py-2 rounded-xl bg-[#0E3847] text-white text-xs font-bold flex items-center gap-1.5 whitespace-nowrap"><Plus className="w-4 h-4" /> إضافة موظف</button>
+      <div className="surface-card rounded-2xl p-4 mb-4">
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <SearchBar value={search} onChange={setSearch} placeholder="ابحث بالاسم أو الهاتف..." />
+            <button type="button" onClick={() => { setEditing(null); setModal(true); }} className="px-3 py-2 rounded-xl bg-[#0E3847] text-white text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0"><Plus className="w-4 h-4" /> إضافة موظف</button>
+          </div>
+          <div className="md:hidden flex items-center gap-1 bg-slate-100 dark:bg-[#123842] rounded-xl p-1 self-start">
+            <button
+              type="button"
+              onClick={() => setMobileView('cards')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${mobileView === 'cards' ? 'bg-white dark:bg-[#1E4F5A] text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}
+            >
+              بطاقات
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileView('table')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${mobileView === 'table' ? 'bg-white dark:bg-[#1E4F5A] text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}
+            >
+              جدول
+            </button>
+          </div>
+        </div>
       </div>
-      {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={load} /> : filtered.length === 0 ? <EmptyState title="لا يوجد موظفون" /> : (
-        <DataTable<User>
-          columns={[
-            { key: 'name', header: 'الاسم', render: u => <span className="font-bold text-slate-800 dark:text-white">{u.name}</span> },
-            { key: 'phone', header: 'الهاتف', render: u => <span dir="ltr" className="font-mono text-xs">{u.phone}</span> },
-            { key: 'role', header: 'الصلاحية', render: u => <Pill tone={u.role === 'super_admin' ? 'coral' : u.role === 'receptionist' ? 'teal' : 'amber'} label={u.role === 'super_admin' ? 'مدير عام' : u.role === 'receptionist' ? 'استقبال' : 'محرر محتوى'} /> },
-            { key: 'isActive', header: 'الحالة', render: u => <Pill tone={u.isActive === false ? 'slate' : 'emerald'} label={u.isActive === false ? 'موقوف' : 'نشط'} /> },
-            { key: 'actions', header: '', render: u => (
-              <div className="flex items-center justify-end gap-1">
-                <button type="button" onClick={() => { setEditing(u); setModal(true); }} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-[#123842]"><FileEdit className="w-4 h-4" /></button>
-                <button type="button" onClick={() => setConfirmDelete(u)} className="p-2 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"><Minus className="w-4 h-4" /></button>
+      {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={load} /> : filtered.length === 0 ? <EmptyState icon={UserCog} title="لا يوجد موظفون" description="أضف موظفاً جديداً للبدء." /> : (
+        <>
+          {/* Mobile: Card View */}
+          <div className={`${mobileView === 'cards' ? 'block' : 'hidden'} md:hidden space-y-3`}>
+            {filtered.map(u => (
+              <div key={u.id} className="surface-card rounded-2xl p-4 border-r-4 border-r-teal-500 dark:border-r-teal-400">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="min-w-0 flex-1">
+                    <span className="font-bold text-slate-900 dark:text-white text-sm block truncate">{u.name}</span>
+                    <span className="font-mono text-[11px] text-teal-600 dark:text-teal-400 block" dir="ltr">{u.phone}</span>
+                  </div>
+                  <Pill tone={u.role === 'super_admin' ? 'coral' : u.role === 'receptionist' ? 'teal' : 'amber'} label={u.role === 'super_admin' ? 'مدير عام' : u.role === 'receptionist' ? 'استقبال' : 'محرر محتوى'} />
+                </div>
+                <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[11px] text-slate-600 dark:text-slate-300">
+                  {u.email && <span className="flex items-center gap-1.5 truncate col-span-2" dir="ltr">{u.email}</span>}
+                  <span className="flex items-center gap-1.5"><Pill tone={u.isActive === false ? 'slate' : 'emerald'} label={u.isActive === false ? 'موقوف' : 'نشط'} /></span>
+                  <span className="text-slate-400">{u.role === 'super_admin' ? 'صلاحية كاملة' : u.role === 'receptionist' ? 'حجوزات ومرضى' : 'إدارة المحتوى'}</span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-100 dark:border-[#1E4F5A]">
+                  <button
+                    type="button"
+                    onClick={() => { setEditing(u); setModal(true); }}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-[#123842] text-slate-600 dark:text-slate-300 text-[11px] font-bold hover:bg-slate-200 cursor-pointer"
+                  >
+                    <FileEdit className="w-3.5 h-3.5" /> تعديل
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(u)}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 text-[11px] font-bold hover:bg-rose-100 cursor-pointer"
+                  >
+                    <Minus className="w-3.5 h-3.5" /> حذف
+                  </button>
+                </div>
               </div>
-            ) },
-          ]}
-          rows={filtered}
-          rowKey={u => u.id}
-        />
+            ))}
+          </div>
+
+          {/* Desktop Table + Mobile Table */}
+          <div className={`${mobileView === 'table' ? 'block' : 'hidden'} md:block`}>
+            <DataTable<User>
+              columns={[
+                { key: 'name', header: 'الاسم', render: u => <span className="font-bold text-slate-800 dark:text-white">{u.name}</span> },
+                { key: 'phone', header: 'الهاتف', render: u => <span dir="ltr" className="font-mono text-xs">{u.phone}</span> },
+                { key: 'role', header: 'الصلاحية', render: u => <Pill tone={u.role === 'super_admin' ? 'coral' : u.role === 'receptionist' ? 'teal' : 'amber'} label={u.role === 'super_admin' ? 'مدير عام' : u.role === 'receptionist' ? 'استقبال' : 'محرر محتوى'} /> },
+                { key: 'isActive', header: 'الحالة', render: u => <Pill tone={u.isActive === false ? 'slate' : 'emerald'} label={u.isActive === false ? 'موقوف' : 'نشط'} /> },
+                { key: 'actions', header: '', render: u => (
+                  <div className="flex items-center justify-end gap-1">
+                    <button type="button" onClick={() => { setEditing(u); setModal(true); }} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-[#123842]"><FileEdit className="w-4 h-4" /></button>
+                    <button type="button" onClick={() => setConfirmDelete(u)} className="p-2 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"><Minus className="w-4 h-4" /></button>
+                  </div>
+                ) },
+              ]}
+              rows={filtered}
+              rowKey={u => u.id}
+            />
+          </div>
+        </>
       )}
       <UserModal open={modal} editing={editing} onClose={() => { setModal(false); setEditing(null); }} onSaved={() => { setModal(false); setEditing(null); load(); toast.push({ kind: 'success', title: 'تم الحفظ' }); }} />
       <ConfirmDialog open={!!confirmDelete} title="حذف الموظف؟" confirmLabel="حذف" danger

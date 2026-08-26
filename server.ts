@@ -278,11 +278,25 @@ app.post('/api/auth/register', wrap(async (req, res) => {
     }
   }
 
-  const userRecord = await firebaseAuth().createUser({
-    email: authEmail,
-    password,
-    displayName: name,
-  });
+  let userRecord;
+  try {
+    userRecord = await firebaseAuth().createUser({
+      email: authEmail,
+      password,
+      displayName: name,
+    });
+  } catch (e: any) {
+    const code = e?.code || '';
+    let friendly = 'فشل إنشاء الحساب، يرجى المحاولة مرة أخرى.';
+    if (code === 'auth/email-already-exists') {
+      friendly = 'البريد الإلكتروني مستخدم بالفعل.';
+    } else if (code === 'auth/invalid-email') {
+      friendly = 'البريد الإلكتروني غير صالح.';
+    } else if (code === 'auth/invalid-password') {
+      friendly = 'كلمة المرور يجب أن لا تقل عن 6 أحرف.';
+    }
+    return res.status(409).json({ success: false, message: friendly });
+  }
   await firebaseAuth().setCustomUserClaims(userRecord.uid, { role: 'patient' });
 
   const user = await db.createUserWithId(userRecord.uid, {
@@ -675,6 +689,26 @@ app.delete('/api/admin/patients/:id', authenticateToken, requireRoles('super_adm
   res.json({ success: true, message: 'تم إيقاف تنشيط الحساب بنجاح.', data: deactivated });
 }));
 
+// Hard-delete a patient (permanently removes the users/{uid} doc) — super_admin only.
+// Distinct from the deactivate route so the UI can offer both "suspend" and "delete".
+app.delete('/api/admin/patients/:id/permanent', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const deleted = await db.deletePatient(req.params.id);
+  if (!deleted) {
+    return res.status(404).json({ success: false, message: 'المريض غير موجود.' });
+  }
+  await db.logAudit(
+    adminUser.id,
+    adminUser.name,
+    adminUser.role,
+    'DELETE_PATIENT',
+    'User',
+    req.params.id,
+    `حذف حساب المريض نهائياً من النظام: ${deleted.name}.`
+  );
+  res.json({ success: true, message: 'تم حذف حساب المريض نهائياً من النظام.', data: deleted });
+}));
+
 // ----------------------------------------------------
 // 5. WORKING HOURS & SCHEDULE MANAGEMENT
 // ----------------------------------------------------
@@ -845,6 +879,21 @@ app.get('/api/admin/content/announcements', authenticateToken, requireRoles('sup
   res.json({ success: true, data: await db.getAnnouncements(true) });
 }));
 
+app.post('/api/admin/content/announcements', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const { message, type, isActive } = req.body || {};
+  if (!message || !String(message).trim()) {
+    return res.status(400).json({ success: false, message: 'يرجى كتابة نص الإعلان.' });
+  }
+  const anc = await db.createAnnouncement({
+    message: String(message).trim(),
+    type: (type === 'alert' || type === 'success' || type === 'info') ? type : 'info',
+    isActive: isActive !== false,
+  });
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'CREATE_ANNOUNCEMENT', 'Announcement', anc.id, `إضافة إعلان جديد لشريط الإعلانات.`);
+  res.status(201).json({ success: true, message: 'تمت إضافة الإعلان بنجاح.', data: anc });
+}));
+
 app.delete('/api/admin/content/announcements/:id', authenticateToken, requireRoles('super_admin', 'content_editor'), wrap(async (req: AuthRequest, res) => {
   const adminUser = req.user!;
   await db.deleteAnnouncement(req.params.id);
@@ -996,9 +1045,40 @@ app.post('/api/admin/users', authenticateToken, requireRoles('super_admin'), wra
   if (!name || !phone || !password || !role) {
     return res.status(400).json({ success: false, message: 'يرجى ملء جميع الحقول المطلوبة للموظف.' });
   }
+  if (!['super_admin', 'receptionist', 'content_editor'].includes(role)) {
+    return res.status(400).json({ success: false, message: 'الصلاحية غير صالحة.' });
+  }
 
-  const authEmail = (email && email.trim()) || `${phone.trim()}@hossam-clinic.local`;
+  const cleanPhone = phone.trim().replace(/\s+/g, '');
+  const cleanEmail = email && email.trim() ? email.trim().toLowerCase() : '';
+  const authEmail = cleanEmail || `${cleanPhone}@hossam-clinic.local`;
+
+  // Pre-check duplicate against the local users mirror — by phone AND by email.
+  // findUserByPhoneOrEmail checks both, so calling it twice (once per identifier)
+  // catches the case where a phone is unique but the email is already in use, and
+  // vice-versa.
+  const existingByPhone = await db.findUserByPhoneOrEmail(cleanPhone);
+  if (existingByPhone) {
+    return res.status(409).json({ success: false, message: 'يوجد حساب مسجل بالفعل بهذا الرقم.' });
+  }
+  if (cleanEmail) {
+    const existingByEmail = await db.findUserByPhoneOrEmail(cleanEmail);
+    if (existingByEmail) {
+      return res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم بالفعل من قبل موظف آخر.' });
+    }
+  }
+
   const { firebaseAuth } = await import('./server/firebase.ts');
+
+  // Pre-check duplicate Firebase Auth email
+  try {
+    await firebaseAuth().getUserByEmail(authEmail);
+    return res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم بالفعل في نظام المصادقة.' });
+  } catch (e: any) {
+    if (e?.code !== 'auth/user-not-found') {
+      throw e;
+    }
+  }
 
   let uid: string;
   try {
@@ -1010,15 +1090,28 @@ app.post('/api/admin/users', authenticateToken, requireRoles('super_admin'), wra
     await firebaseAuth().setCustomUserClaims(userRecord.uid, { role });
     uid = userRecord.uid;
   } catch (e: any) {
-    return res.status(409).json({ success: false, message: e?.message || 'فشل إنشاء المستخدم في Firebase Auth.' });
+    // Translate the most common Firebase Auth error codes to friendly Arabic
+    // messages instead of leaking raw English to the UI.
+    const code = e?.code || '';
+    let friendly = 'فشل إنشاء المستخدم في نظام المصادقة.';
+    if (code === 'auth/email-already-exists') {
+      friendly = 'البريد الإلكتروني مستخدم بالفعل في نظام المصادقة.';
+    } else if (code === 'auth/invalid-email') {
+      friendly = 'البريد الإلكتروني غير صالح.';
+    } else if (code === 'auth/invalid-password') {
+      friendly = 'كلمة المرور يجب أن لا تقل عن 6 أحرف.';
+    } else if (code === 'auth/phone-number-already-exists') {
+      friendly = 'رقم الهاتف مرتبط بحساب آخر بالفعل.';
+    }
+    return res.status(409).json({ success: false, message: friendly });
   }
 
   // Store the Firestore profile doc id == Firebase Auth uid so that
   // authenticateToken (findUserById(uid)) can resolve the user on login.
   const newUser = await db.createUserWithId(uid, {
     name,
-    phone,
-    email,
+    phone: cleanPhone,
+    email: cleanEmail || undefined,
     password,
     role,
   });

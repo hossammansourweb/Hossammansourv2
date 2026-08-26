@@ -317,6 +317,14 @@ export const api = {
       method: 'DELETE',
     }),
 
+  // Permanently delete a patient (their users/{uid} doc). Distinct from deactivate
+  // (which only flips isActive=false) so callers can offer both "suspend" and
+  // "delete" actions.
+  deletePatient: (id: string) =>
+    request<{ success: boolean; message: string; data: User }>(`/admin/patients/${id}/permanent`, {
+      method: 'DELETE',
+    }),
+
   // Schedule & Working Hours
   getWorkingHours: (branchId?: string) =>
     request<{ success: boolean; data: WorkingHourRule[] }>(`/admin/working-hours${branchId ? `?branchId=${branchId}` : ''}`),
@@ -442,6 +450,11 @@ export const api = {
     request<{ success: boolean; data: MedicalService[] }>(`/search/services${params.q ? `?q=${encodeURIComponent(params.q)}` : ''}`),
 
   getAdminAnnouncements: () => request<{ success: boolean; data: Announcement[] }>('/admin/content/announcements'),
+  createAnnouncement: (payload: { message: string; type?: 'info' | 'alert' | 'success'; isActive?: boolean }) =>
+    request<{ success: boolean; message: string; data: Announcement }>('/admin/content/announcements', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   deleteAnnouncement: (id: string) => request<{ success: boolean; message: string }>(`/admin/content/announcements/${id}`, {
     method: 'DELETE',
   }),
@@ -467,6 +480,11 @@ export const api = {
   createStaffUser: (payload: any) =>
     request<{ success: boolean; message: string; data: User }>('/admin/users', {
       method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateUser: (id: string, payload: Partial<User>) =>
+    request<{ success: boolean; message: string; data: User }>(`/admin/users/${id}`, {
+      method: 'PUT',
       body: JSON.stringify(payload),
     }),
 };

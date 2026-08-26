@@ -1,11 +1,11 @@
 import {
   initializeApp,
+  initializeFirestore,
   cert,
   getApps,
   type App,
 } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -46,6 +46,7 @@ function loadCredentials() {
 }
 
 let app: App | undefined;
+let dbInstance: ReturnType<typeof initializeFirestore> | undefined;
 
 function getFirebase(): App {
   if (!app) {
@@ -60,4 +61,33 @@ export function getFirebaseApp(): App {
 }
 
 export const firebaseAuth = () => getAuth(getFirebase());
-export const db = () => getFirestore(getFirebase());
+
+/**
+ * Returns the Firestore instance with `ignoreUndefinedProperties: true` so that
+ * optional fields (e.g. `gender`, `age`, `email`) can be omitted from write
+ * payloads without raising
+ *   "Cannot use 'undefined' as a Firestore value (found in field ...)"
+ * For new apps we use `initializeFirestore` (which accepts settings); for apps
+ * that were already initialized elsewhere (HMR, tests) we fall back to the
+ * default `getFirestore` and apply the same settings at runtime.
+ */
+export const db = () => {
+  if (dbInstance) return dbInstance;
+  try {
+    dbInstance = initializeFirestore(getFirebase(), {
+      ignoreUndefinedProperties: true,
+    });
+  } catch {
+    // App already initialized — get the default instance and apply the same
+    // settings so the rest of the code path behaves identically.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { getFirestore } = require('firebase-admin/firestore');
+    dbInstance = getFirestore(getFirebase());
+    try {
+      dbInstance.settings({ ignoreUndefinedProperties: true });
+    } catch {
+      // Settings can only be set once; ignore if already configured.
+    }
+  }
+  return dbInstance;
+};

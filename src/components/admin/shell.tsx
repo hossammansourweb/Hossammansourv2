@@ -10,14 +10,13 @@ import {
   UserCog,
   LogOut,
   Menu,
-  Bell,
-  Sun,
-  Moon,
   ChevronsLeft,
   X,
+  Globe,
+  User,
+  ChevronDown,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.tsx';
-import { useTheme } from '../../context/ThemeContext.tsx';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Dashboard,
@@ -29,6 +28,7 @@ import {
   Cms,
   UsersPage,
 } from './pages.tsx';
+import { ToastProvider } from './ui.tsx';
 
 export type AdminPageKey =
   | 'dashboard'
@@ -257,6 +257,14 @@ function MobileDrawer({
               <div className="border-t border-slate-100 dark:border-[#17424C] p-3 space-y-2 shrink-0">
                 <button
                   type="button"
+                  onClick={() => { setOpen(false); window.history.pushState({}, '', '/'); window.dispatchEvent(new PopStateEvent('popstate')); }}
+                  className="w-full flex items-center gap-3 rounded-xl px-3.5 py-3 border border-slate-200 dark:border-[#1E4F5A] bg-white dark:bg-[#123842] text-slate-700 dark:text-slate-200 text-sm font-bold cursor-pointer"
+                >
+                  <Globe className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+                  <span>الذهاب إلى الموقع</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => { setOpen(false); logout(); }}
                   className="w-full flex items-center gap-3 rounded-xl px-3.5 py-3 border border-rose-200 dark:border-rose-900/40 text-rose-600 text-sm font-bold cursor-pointer"
                 >
@@ -281,16 +289,13 @@ function Header({
   onNavigate: (k: AdminPageKey) => void;
 }) {
   const { user, logout } = useAdminCtx();
-  const { theme, toggleTheme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         setProfileOpen(false);
-        setNotifOpen(false);
       }
     };
     document.addEventListener('mousedown', h);
@@ -312,48 +317,34 @@ function Header({
       <div className="flex items-center gap-1.5 sm:gap-2">
         <button
           type="button"
-          onClick={toggleTheme}
-          className="w-10 h-10 rounded-xl border border-slate-200 dark:border-[#1E4F5A] text-slate-600 dark:text-amber-300 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-[#123842] cursor-pointer"
-          aria-label="تبديل المظهر"
+          onClick={() => { window.history.pushState({}, '', '/'); window.dispatchEvent(new PopStateEvent('popstate')); }}
+          className="hidden sm:inline-flex items-center gap-1.5 h-10 px-3 sm:px-4 rounded-xl border border-slate-200 dark:border-[#1E4F5A] bg-white dark:bg-[#123842] text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-[#164450] text-xs font-bold cursor-pointer transition-colors"
+          aria-label="الذهاب إلى الموقع"
+          title="الذهاب إلى الموقع"
         >
-          {theme === 'dark' ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
+          <Globe className="w-[18px] h-[18px] text-teal-600 dark:text-teal-400" />
+          <span>الذهاب إلى الموقع</span>
         </button>
-
+        <button
+          type="button"
+          onClick={() => { window.history.pushState({}, '', '/'); window.dispatchEvent(new PopStateEvent('popstate')); }}
+          className="sm:hidden w-10 h-10 rounded-xl border border-slate-200 dark:border-[#1E4F5A] text-teal-600 dark:text-teal-400 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-[#123842] cursor-pointer"
+          aria-label="الذهاب إلى الموقع"
+          title="الذهاب إلى الموقع"
+        >
+          <Globe className="w-[18px] h-[18px]" />
+        </button>
         <div className="relative" ref={ref}>
           <button
             type="button"
-            onClick={() => { setNotifOpen(o => !o); setProfileOpen(false); }}
-            className="w-10 h-10 rounded-xl border border-slate-200 dark:border-[#1E4F5A] text-slate-600 dark:text-slate-200 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-[#123842] cursor-pointer relative"
-            aria-label="التنبيهات"
+            onClick={() => { setProfileOpen(o => !o); }}
+            className="flex items-center gap-1.5 sm:gap-2 px-1 sm:px-2.5 h-10 rounded-xl hover:bg-slate-50 dark:hover:bg-[#123842] cursor-pointer border border-slate-200 dark:border-[#1E4F5A] transition-colors"
           >
-            <Bell className="w-[18px] h-[18px]" />
-            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#E05A47]" />
-          </button>
-          <AnimatePresence>
-            {notifOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: -6, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -6, scale: 0.98 }}
-                className="absolute left-0 mt-2 z-50 w-72 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200 dark:border-[#1E4F5A] shadow-xl p-3 text-right"
-              >
-                <p className="text-xs font-extrabold text-slate-900 dark:text-white mb-2">التنبيهات</p>
-                <p className="text-xs text-slate-400 text-center py-4">لا توجد تنبيهات حالياً.</p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        <div className="relative" ref={ref}>
-          <button
-            type="button"
-            onClick={() => { setProfileOpen(o => !o); setNotifOpen(false); }}
-            className="flex items-center gap-2 px-1 sm:px-2 h-10 rounded-xl hover:bg-slate-50 dark:hover:bg-[#123842] cursor-pointer"
-          >
-            <div className="w-8 h-8 rounded-full bg-teal-50 dark:bg-[#123842] border border-teal-100 dark:border-teal-800 flex items-center justify-center text-[#0E3847] dark:text-teal-300 text-xs font-extrabold">
-              {(user?.name || '؟').slice(0, 1)}
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-teal-500 to-[#0E3847] dark:from-teal-600 dark:to-teal-800 flex items-center justify-center text-white shadow-sm">
+              <User className="w-4 h-4" strokeWidth={2.5} />
             </div>
             <span className="hidden md:block text-xs font-bold text-slate-800 dark:text-slate-100 max-w-[110px] truncate">{user?.name}</span>
+            <ChevronDown className={`hidden md:block w-3.5 h-3.5 text-slate-400 transition-transform ${profileOpen ? 'rotate-180' : ''}`} />
           </button>
           <AnimatePresence>
             {profileOpen && (
@@ -395,33 +386,35 @@ export function AdminApp({
   const { user, logout } = useAuth();
 
   return (
-    <AdminCtx.Provider value={{ user, logout, navigate }}>
-      <div dir="rtl" className="min-h-screen bg-slate-50 dark:bg-[#0B252C] flex">
-        <Sidebar current={page} onNavigate={navigate} collapsed={collapsed} setCollapsed={setCollapsed} />
-        <div className="flex-1 flex flex-col min-w-0">
-          <Header current={page} onNavigate={navigate} />
-          <main className="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 overflow-x-hidden">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={page}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.18 }}
-              >
-                {page === 'dashboard' && <Dashboard />}
-                {page === 'appointments' && <Appointments />}
-                {page === 'patients' && <Patients />}
-                {page === 'branches' && <Branches />}
-                {page === 'services' && <Services />}
-                {page === 'working-hours' && <WorkingHours />}
-                {page === 'cms' && <Cms />}
-                {page === 'users' && <UsersPage />}
-              </motion.div>
-            </AnimatePresence>
-          </main>
+    <ToastProvider>
+      <AdminCtx.Provider value={{ user, logout, navigate }}>
+        <div dir="rtl" className="min-h-screen bg-slate-50 dark:bg-[#0B252C] flex">
+          <Sidebar current={page} onNavigate={navigate} collapsed={collapsed} setCollapsed={setCollapsed} />
+          <div className="flex-1 flex flex-col min-w-0">
+            <Header current={page} onNavigate={navigate} />
+            <main className="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 overflow-x-hidden">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={page}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.18 }}
+                >
+                  {page === 'dashboard' && <Dashboard />}
+                  {page === 'appointments' && <Appointments />}
+                  {page === 'patients' && <Patients />}
+                  {page === 'branches' && <Branches />}
+                  {page === 'services' && <Services />}
+                  {page === 'working-hours' && <WorkingHours />}
+                  {page === 'cms' && <Cms />}
+                  {page === 'users' && <UsersPage />}
+                </motion.div>
+              </AnimatePresence>
+            </main>
+          </div>
         </div>
-      </div>
-    </AdminCtx.Provider>
+      </AdminCtx.Provider>
+    </ToastProvider>
   );
 }

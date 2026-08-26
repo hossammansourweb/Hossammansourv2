@@ -40,6 +40,7 @@ export function formatArabicTime(timeStr: string): string {
   if (!timeStr) return '';
   const [hoursStr, minsStr] = timeStr.split(':');
   let hours = parseInt(hoursStr, 10);
+  const mins = minsStr ? parseInt(minsStr, 10) : 0;
   const period = hours >= 12 ? 'مساءً' : 'صباحاً';
 
   if (hours === 0) {
@@ -48,7 +49,27 @@ export function formatArabicTime(timeStr: string): string {
     hours = hours - 12;
   }
 
-  return `${hours}:${minsStr} ${period}`;
+  return `${hours}:${minsStr || '00'} ${period}`;
+}
+
+/**
+ * Formats a time string (HH:MM) to 12-hour format with AM/PM,
+ * e.g. "14:30" → "2:30 PM". Replaces the 24-hour display everywhere.
+ */
+export function formatTime12h(timeStr: string): string {
+  if (!timeStr) return '';
+  const [hoursStr, minsStr] = timeStr.split(':');
+  let hours = parseInt(hoursStr, 10);
+  const mins = minsStr ? parseInt(minsStr, 10) : 0;
+  const period = hours >= 12 ? 'PM' : 'AM';
+
+  if (hours === 0) {
+    hours = 12;
+  } else if (hours > 12) {
+    hours = hours - 12;
+  }
+
+  return `${hours}:${minsStr || '00'} ${period}`;
 }
 
 export function getDayOfWeekArabic(dayNumber: number): string {

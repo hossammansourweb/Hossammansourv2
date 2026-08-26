@@ -12,7 +12,7 @@ import {
   AppointmentStatus,
 } from '../types/index.ts';
 import { api } from '../services/api.ts';
-import { formatArabicDate, formatArabicTime, getTodayDateString } from '../utils/date.ts';
+import { formatArabicDate, formatArabicTime, formatTime12h, getTodayDateString } from '../utils/date.ts';
 import { StatusBadge } from '../components/common/StatusBadge.tsx';
 import { LoadingSpinner } from '../components/common/LoadingSpinner.tsx';
 import { EmptyState } from '../components/common/EmptyState.tsx';
@@ -626,7 +626,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({ onNaviga
                       <div key={idx} className="flex items-center justify-between text-slate-500">
                         <span>{s.dayName}</span>
                         <span>
-                          {s.startTime} إلى {s.endTime} (بمعدل {s.slotDurationMinutes} دقيقة)
+                          {formatTime12h(s.startTime)} إلى {formatTime12h(s.endTime)} (بمعدل {s.slotDurationMinutes} دقيقة)
                         </span>
                       </div>
                     ))}

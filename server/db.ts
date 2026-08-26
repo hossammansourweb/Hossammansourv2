@@ -45,6 +45,13 @@ const COL = {
 
 const DOCTOR_PROFILE_DOC_ID = 'main';
 
+/** Strip undefined values recursively so the payload is safe for Firestore. */
+function stripUndefined<T extends Record<string, any>>(obj: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined)
+  ) as Partial<T>;
+}
+
 function toIso(value: any): string {
   if (!value) return new Date().toISOString();
   if (value instanceof Timestamp) {
@@ -148,7 +155,12 @@ class ClinicDatabase {
       passwordHash: '', // passwords live in Firebase Auth only
       createdAt: new Date().toISOString(),
     };
-    await firestore().collection(COL.users).doc(id).set(baseUser);
+    // Firestore rejects undefined values; strip them before writing.
+    // (Firestore is also configured with ignoreUndefinedProperties: true
+    //  in server/firebase.ts, but stripping here keeps the stored document
+    //  clean and avoids surprises if the flag is ever turned off.)
+    const clean = stripUndefined(baseUser);
+    await firestore().collection(COL.users).doc(id).set(clean as any);
     const { passwordHash: _omit, ...safe } = baseUser;
     return safe as User;
   }
@@ -176,7 +188,9 @@ class ClinicDatabase {
       passwordHash: '', // passwords live in Firebase Auth only
       createdAt: new Date().toISOString(),
     };
-    await firestore().collection(COL.users).doc(id).set(baseUser);
+    // Firestore rejects undefined values; strip them before writing.
+    const clean = stripUndefined(baseUser);
+    await firestore().collection(COL.users).doc(id).set(clean as any);
     const { passwordHash: _omit, ...safe } = baseUser;
     return safe as User;
   }
@@ -188,7 +202,9 @@ class ClinicDatabase {
     const clean: any = { ...updates };
     // Don't allow overwriting id
     delete clean.id;
-    await ref.update(clean);
+    // Firestore rejects undefined values; strip them before writing.
+    const safeUpdates = stripUndefined(clean);
+    await ref.update(safeUpdates);
     const fresh = await ref.get();
     const data = fresh.data() as UserWithPassword;
     const { passwordHash: _omit, ...safe } = data;
@@ -203,6 +219,25 @@ class ClinicDatabase {
     await ref.update({ isActive: false, updatedAt: new Date().toISOString() });
     const fresh = await ref.get();
     return fresh.data() as User | null;
+  }
+
+  // Hard delete a patient — removes the users/{uid} document. This is a destructive
+  // operation: caller is responsible for deciding whether the patient is safe to
+  // remove (e.g. already deactivated, or a guest that has never had an account).
+  // We do NOT cascade delete the appointment history; appointments survive so the
+  // booking record stays intact and reports remain accurate.
+  public async deletePatient(id: string): Promise<User | null> {
+    const ref = firestore().collection(COL.users).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    const data = doc.data() as User;
+    if (data.role && data.role !== 'patient') {
+      throw new Error('لا يمكن حذف حساب طاقم طبي من هنا.');
+    }
+    // Best-effort: remove the Firebase Auth account so the patient can't sign in.
+    try { await firebaseAuth().deleteUser(id); } catch { /* ignore */ }
+    await ref.delete();
+    return data;
   }
 
   // ----------------- BRANCHES -----------------
@@ -850,6 +885,22 @@ class ClinicDatabase {
     return snap.docs
       .map(d => d.data() as Announcement)
       .filter(a => !activeOnly || a.isActive);
+  }
+
+  public async createAnnouncement(
+    data: Omit<Announcement, 'id' | 'createdAt'> & { createdAt?: string }
+  ): Promise<Announcement> {
+    const id = `anc_${Date.now()}`;
+    const newAnc: Announcement = {
+      ...data,
+      id,
+      createdAt: data.createdAt || new Date().toISOString(),
+    } as Announcement;
+    const clean = Object.fromEntries(
+      Object.entries(newAnc).filter(([, v]) => v !== undefined)
+    ) as Announcement;
+    await firestore().collection(COL.announcements).doc(id).set(clean);
+    return newAnc;
   }
 
   public async updateAnnouncement(
