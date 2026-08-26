@@ -289,6 +289,11 @@ export const api = {
       body: JSON.stringify({ status, reason, clinicInternalNotes }),
     }),
 
+  deleteAppointment: (id: string) =>
+    request<{ success: boolean; message: string; data: Appointment }>(`/admin/appointments/${id}`, {
+      method: 'DELETE',
+    }),
+
   rescheduleAdminAppointment: (id: string, newDate: string, newTime: string, newBranchId?: string) =>
     request<{ success: boolean; message: string; data: Appointment }>(`/admin/appointments/${id}/reschedule`, {
       method: 'PUT',

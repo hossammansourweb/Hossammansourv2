@@ -666,6 +666,15 @@ class ClinicDatabase {
     return fresh;
   }
 
+  public async deleteAppointment(id: string): Promise<Appointment | null> {
+    const ref = firestore().collection(COL.appointments).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    const apt = doc.data() as Appointment;
+    await ref.delete();
+    return apt;
+  }
+
   // ----------------- DASHBOARD STATS -----------------
   public async getDashboardStats(): Promise<DashboardStats> {
     const [appointments, branches, patients] = await Promise.all([

@@ -547,6 +547,28 @@ app.patch('/api/admin/appointments/:id/status', authenticateToken, requireRoles(
   res.json({ success: true, message: 'تم تحديث حالة الحجز بنجاح.', data: updated });
 }));
 
+app.delete('/api/admin/appointments/:id', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const apt = await db.findAppointmentById(req.params.id);
+  if (!apt) {
+    return res.status(404).json({ success: false, message: 'الموعد غير موجود.' });
+  }
+
+  const deleted = await db.deleteAppointment(req.params.id);
+
+  await db.logAudit(
+    adminUser.id,
+    adminUser.name,
+    adminUser.role,
+    'DELETE_APPOINTMENT',
+    'Appointment',
+    apt.id,
+    `حذف الحجز رقم ${apt.bookingNumber} للمريض ${apt.patientName} من النظام بواسطة الإدارة.`
+  );
+
+  res.json({ success: true, message: 'تم حذف الموعد بشكل دائم من النظام.', data: deleted });
+}));
+
 app.put('/api/admin/appointments/:id/reschedule', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req: AuthRequest, res) => {
   const adminUser = req.user!;
   const { newDate, newTime, newBranchId } = req.body;

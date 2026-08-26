@@ -32,7 +32,6 @@ import type {
   DashboardStats,
 } from '../../types/index.ts';
 import {
-  PageHeader,
   StatCard,
   SearchBar,
   FilterBar,
@@ -105,8 +104,6 @@ export function Dashboard() {
 
   return (
     <div>
-      <PageHeader title="لوحة المؤشرات" description="نظرة عامة على أداء العيادة لليوم وهذا الأسبوع." breadcrumb={['لوحة التحكم', 'المؤشرات']} />
-
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <StatCard label="مواعيد اليوم" value={s.todayBookings ?? 0} hint={formatArabicDate(getTodayDateString())} icon={Calendar} tone="teal" />
         <StatCard label="مواعيد الأسبوع" value={s.weeklyBookings ?? 0} icon={TrendingUp} tone="emerald" />
@@ -200,11 +197,14 @@ export function Appointments() {
   const [branch, setBranch] = useState('all');
   const [date, setDate] = useState('');
   const [page, setPage] = useState(1);
-  const perPage = 10;
+  const perPage = 15;
   const [viewing, setViewing] = useState<Appointment | null>(null);
-  const [editing, setEditing] = useState<Appointment | null>(null);
+  const [statusModal, setStatusModal] = useState<Appointment | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState<string>('');
+  const [statusUpdating, setStatusUpdating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<Appointment | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [mobileView, setMobileView] = useState<'cards' | 'table'>('cards');
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -219,6 +219,8 @@ export function Appointments() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => { setPage(1); }, [search, status, branch, date]);
+
   const filtered = data.filter(ap => {
     const q = search.toLowerCase();
     const mSearch = !q || ap.patientName.toLowerCase().includes(q) || ap.patientPhone.includes(q) || ap.bookingNumber.toLowerCase().includes(q);
@@ -227,37 +229,63 @@ export function Appointments() {
     const mDate = !date || ap.appointmentDate === date;
     return mSearch && mStatus && mBranch && mDate;
   });
-  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
   const visible = filtered.slice((page - 1) * perPage, page * perPage);
 
   const doDelete = async () => {
     if (!confirmDelete) return;
     setDeleting(true);
     try {
-      await api.updateAppointmentStatus(confirmDelete.id, 'cancelled', 'حذف بواسطة الإدارة', 'تم وضع علامة حذف إداري مع الحفاظ على سجل التدقيق.');
-      toast.push({ kind: 'success', title: 'تم حذف الموعد', description: 'أُلغي الموعد مع الحفاظ على سجل التدقيق.' });
+      await api.deleteAppointment(confirmDelete.id);
+      toast.push({ kind: 'success', title: 'تم حذف الموعد', description: 'تم حذف الموعد بشكل دائم من النظام.' });
       setConfirmDelete(null); load();
     } catch (e: any) { toast.push({ kind: 'error', title: 'فشل الحذف', description: e.message }); }
     finally { setDeleting(false); }
   };
 
+  const doStatusChange = async () => {
+    if (!statusModal || !selectedStatus) return;
+    setStatusUpdating(true);
+    try {
+      await api.updateAppointmentStatus(statusModal.id, selectedStatus, `تغيير الحالة إلى ${selectedStatus} بواسطة الإدارة`);
+      toast.push({ kind: 'success', title: 'تم تحديث الحالة', description: `تغيير حالة الحجز إلى ${selectedStatus}` });
+      setStatusModal(null); setSelectedStatus(''); load();
+    } catch (e: any) { toast.push({ kind: 'error', title: 'فشل تحديث الحالة', description: e.message }); }
+    finally { setStatusUpdating(false); }
+  };
+
   return (
     <div>
-      <PageHeader title="الحجوزات والمواعيد" description="إدارة كل حجوزات الكشف عبر الفروع." />
-
       <div className="surface-card rounded-2xl p-4 mb-4">
         <div className="flex flex-col gap-3">
           <SearchBar value={search} onChange={setSearch} placeholder="ابحث بالاسم، الهاتف، أو كود الحجز..." />
-          <FilterBar
-            onReset={() => { setStatus('all'); setBranch('all'); setDate(''); setSearch(''); setPage(1); }}
-            filters={[
-              { id: 'status', label: 'الحالة', value: status, onChange: setStatus, options: [
-                { v: 'all', label: 'كل الحالات' }, { v: 'new', label: 'حجز جديد' }, { v: 'confirmed', label: 'مؤكد' }, { v: 'checked_in', label: 'حضر' }, { v: 'completed', label: 'تم الكشف' }, { v: 'cancelled', label: 'ملغي' }, { v: 'no_show', label: 'لم يحضر' },
-              ] },
-              { id: 'branch', label: 'الفرع', value: branch, onChange: setBranch, options: [{ v: 'all', label: 'كل الفروع' }, ...branches.map(b => ({ v: b.id, label: b.name }))] },
-              { id: 'date', label: 'التاريخ', value: date, onChange: setDate, options: [{ v: '', label: 'كل التواريخ' }, { v: getTodayDateString(), label: 'اليوم' }] },
-            ]}
-          />
+          <div className="flex flex-wrap items-end gap-3">
+            <FilterBar
+              onReset={() => { setStatus('all'); setBranch('all'); setDate(''); setSearch(''); setPage(1); }}
+              filters={[
+                { id: 'status', label: 'الحالة', value: status, onChange: setStatus, options: [
+                  { v: 'all', label: 'كل الحالات' }, { v: 'new', label: 'حجز جديد' }, { v: 'confirmed', label: 'مؤكد' }, { v: 'checked_in', label: 'حضر' }, { v: 'completed', label: 'تم الكشف' }, { v: 'cancelled', label: 'ملغي' }, { v: 'no_show', label: 'لم يحضر' },
+                ] },
+                { id: 'branch', label: 'الفرع', value: branch, onChange: setBranch, options: [{ v: 'all', label: 'كل الفروع' }, ...branches.map(b => ({ v: b.id, label: b.name }))] },
+                { id: 'date', label: 'التاريخ', value: date, onChange: setDate, options: [{ v: '', label: 'كل التواريخ' }, { v: getTodayDateString(), label: 'اليوم' }] },
+              ]}
+            />
+            <div className="md:hidden flex items-center gap-1 bg-slate-100 dark:bg-[#123842] rounded-xl p-1">
+              <button
+                type="button"
+                onClick={() => setMobileView('cards')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${mobileView === 'cards' ? 'bg-white dark:bg-[#1E4F5A] text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}
+              >
+                بطاقات
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileView('table')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${mobileView === 'table' ? 'bg-white dark:bg-[#1E4F5A] text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}
+              >
+                جدول
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -265,26 +293,76 @@ export function Appointments() {
         data.length === 0 ? <EmptyState icon={Calendar} title="لا توجد مواعيد" description="لم يتم تسجيل أي مواعيد بعد." /> :
         filtered.length === 0 ? <EmptyState title="لا نتائج" description="غيِّر معايير البحث أو الفلتر." /> : (
           <>
-            <DataTable columns={[
-              { header: 'كود الحجز', render: (a: Appointment) => <span className="font-mono font-bold text-teal-600 dark:text-teal-400">{a.bookingNumber}</span> },
-              { header: 'المريض', render: (a: Appointment) => <span className="font-bold">{a.patientName}</span> },
-              { header: 'الهاتف', render: (a: Appointment) => <span dir="ltr" className="font-mono">{a.patientPhone}</span> },
-              { header: 'الخدمة', render: (a: Appointment) => <span className="text-slate-500 dark:text-slate-400">{a.serviceName || '—'}</span> },
-              { header: 'الفرع', render: (a: Appointment) => <span>{a.branchName || '—'}</span> },
-              { header: 'الموعد', render: (a: Appointment) => <div><span className="text-slate-500 dark:text-slate-400 text-[11px] block">{formatArabicDate(a.appointmentDate)}</span><span className="font-bold text-teal-600 dark:text-teal-400">{formatArabicTime(a.appointmentTime)}</span></div> },
-              { header: 'الحالة', render: (a: Appointment) => <StatusBadge status={a.status} /> },
-            ]} rows={visible}
-              onRowClick={setViewing}
-              actions={(a) => (
-                <div onClick={e => e.stopPropagation()}>
-                  <DropdownMenu align="left" items={[
-                    { label: 'عرض التفاصيل', icon: Eye, onClick: () => setViewing(a) },
-                    { label: 'تعديل الحالة', icon: FileEdit, onClick: () => setEditing(a) },
-                    { label: 'حذف', icon: Minus, onClick: () => setConfirmDelete(a), danger: true },
-                  ]} />
+            {/* Mobile: Card View */}
+            <div className={`${mobileView === 'cards' ? 'block' : 'hidden'} md:hidden space-y-3`}>
+              {visible.map(a => (
+                <div key={a.id} className="surface-card rounded-2xl p-4 border-r-4 border-r-teal-500 dark:border-r-teal-400">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="min-w-0 flex-1">
+                      <span className="font-bold text-slate-900 dark:text-white text-sm block truncate">{a.patientName}</span>
+                      <span className="font-mono text-[11px] text-teal-600 dark:text-teal-400 block">{a.bookingNumber}</span>
+                    </div>
+                    <StatusBadge status={a.status} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[11px] text-slate-600 dark:text-slate-300">
+                    <span className="flex items-center gap-1.5"><Phone className="w-3 h-3 text-slate-400" /> <span dir="ltr">{a.patientPhone}</span></span>
+                    <span className="flex items-center gap-1.5"><Calendar className="w-3 h-3 text-slate-400" /> {formatArabicDate(a.appointmentDate)}</span>
+                    <span className="flex items-center gap-1.5"><ClockIcon className="w-3 h-3 text-slate-400" /> {formatArabicTime(a.appointmentTime)}</span>
+                    <span className="flex items-center gap-1.5"><Building2 className="w-3 h-3 text-slate-400" /> {a.branchName || '—'}</span>
+                  </div>
+                  {a.serviceName && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2 truncate">{a.serviceName}</p>
+                  )}
+                  <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-100 dark:border-[#1E4F5A]">
+                    <button
+                      type="button"
+                      onClick={() => setViewing(a)}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-[#123842] text-slate-600 dark:text-slate-300 text-[11px] font-bold hover:bg-slate-200 cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> عرض
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedStatus(a.status); setStatusModal(a); }}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-[#123842] text-slate-600 dark:text-slate-300 text-[11px] font-bold hover:bg-slate-200 cursor-pointer"
+                    >
+                      <FileEdit className="w-3.5 h-3.5" /> حالة
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(a)}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 text-[11px] font-bold hover:bg-rose-100 cursor-pointer"
+                    >
+                      <Minus className="w-3.5 h-3.5" /> حذف
+                    </button>
+                  </div>
                 </div>
-              )}
-            />
+              ))}
+            </div>
+
+            {/* Desktop Table + Mobile Table (when table view selected) */}
+            <div className={`${mobileView === 'table' ? 'block' : 'hidden'} md:block`}>
+              <DataTable columns={[
+                { header: 'كود الحجز', render: (a: Appointment) => <span className="font-mono font-bold text-teal-600 dark:text-teal-400">{a.bookingNumber}</span> },
+                { header: 'المريض', render: (a: Appointment) => <span className="font-bold">{a.patientName}</span> },
+                { header: 'الهاتف', render: (a: Appointment) => <span dir="ltr" className="font-mono">{a.patientPhone}</span> },
+                { header: 'الخدمة', render: (a: Appointment) => <span className="text-slate-500 dark:text-slate-400">{a.serviceName || '—'}</span> },
+                { header: 'الفرع', render: (a: Appointment) => <span>{a.branchName || '—'}</span> },
+                { header: 'الموعد', render: (a: Appointment) => <div><span className="text-slate-500 dark:text-slate-400 text-[11px] block">{formatArabicDate(a.appointmentDate)}</span><span className="font-bold text-teal-600 dark:text-teal-400">{formatArabicTime(a.appointmentTime)}</span></div> },
+                { header: 'الحالة', render: (a: Appointment) => <StatusBadge status={a.status} /> },
+              ]} rows={visible}
+                onRowClick={setViewing}
+                actions={(a) => (
+                  <div onClick={e => e.stopPropagation()}>
+                    <DropdownMenu align="left" items={[
+                      { label: 'عرض التفاصيل', icon: Eye, onClick: () => setViewing(a) },
+                      { label: 'تعديل الحالة', icon: FileEdit, onClick: () => { setSelectedStatus(a.status); setStatusModal(a); } },
+                      { label: 'حذف', icon: Minus, onClick: () => setConfirmDelete(a), danger: true },
+                    ]} />
+                  </div>
+                )}
+              />
+            </div>
             <Pagination page={page} total={filtered.length} perPage={perPage} onChange={setPage} />
           </>
         )}
@@ -293,8 +371,27 @@ export function Appointments() {
         onClose={() => setViewing(null)}
         onChanged={(a) => { setViewing(null); load(); toast.push({ kind: 'success', title: 'تم تحديث الحالة' }); void a; }} />
 
+      {/* Status Change Modal */}
+      <ConfirmDialog open={!!statusModal} title="تعديل حالة الحجز" confirmLabel="حفظ"
+        description={statusModal ? <>
+          <p className="mb-3">تغيير حالة الحجز للمريض <b>{statusModal.patientName}</b> (كود {statusModal.bookingNumber}):</p>
+          <select
+            value={selectedStatus}
+            onChange={e => setSelectedStatus(e.target.value)}
+            className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1E4F5A] text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+          >
+            <option value="new">حجز جديد</option>
+            <option value="confirmed">مؤكد</option>
+            <option value="checked_in">حضر</option>
+            <option value="completed">تم الكشف</option>
+            <option value="cancelled">ملغي</option>
+            <option value="no_show">لم يحضر</option>
+          </select>
+        </> : null}
+        loading={statusUpdating} onConfirm={doStatusChange} onClose={() => { setStatusModal(null); setSelectedStatus(''); }} />
+
       <ConfirmDialog open={!!confirmDelete} title="حذف الموعد" danger confirmLabel="حذف"
-        description={confirmDelete ? <>هل تريد حذف موعد <b>{confirmDelete.patientName}</b> (كود {confirmDelete.bookingNumber})؟ سيتم إلغاؤه مع الحفاظ على سجل التدقيق.</> : null}
+        description={confirmDelete ? <>هل تريد حذف موعد <b>{confirmDelete.patientName}</b> (كود {confirmDelete.bookingNumber})؟ هذا الإجراء نهائي ولا يمكن التراجع عنه.</> : null}
         loading={deleting} onConfirm={doDelete} onClose={() => setConfirmDelete(null)} />
       <span className="hidden">{services.length}</span>
     </div>
@@ -375,7 +472,6 @@ export function Patients() {
 
   return (
     <div>
-      <PageHeader title="المرضى" description="دليل المرضى المسجلين والزائرين مع إجمالي الزيارات وسجل المواعيد." />
       <div className="surface-card rounded-2xl p-4 mb-5">
         <SearchBar value={search} onChange={setSearch} placeholder="ابحث عن مريض بالاسم أو الهاتف..." />
       </div>
@@ -446,12 +542,14 @@ export function Branches() {
 
   return (
     <div>
-      <PageHeader title="الفروع" description="فروع العيادة ومواقعها وأوقات العمل."
-        actions={<>{isSuperAdmin && (
+      <div className="flex items-center justify-between mb-4">
+        <div />
+        {isSuperAdmin && (
           <button type="button" onClick={() => { setEditing(null); setModal(true); }} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] cursor-pointer">
             <Plus className="w-4 h-4" /> إضافة فرع
           </button>
-        )}</>} />
+        )}
+      </div>
 
       {loading ? <LoadingState label="جارِ تحميل الفروع..." /> : error ? <ErrorState message={error} onRetry={load} /> :
         data.length === 0 ? <EmptyState icon={Building2} title="لا توجد فروع" description="لم تُضف أي فروع بعد." /> : (
@@ -531,17 +629,15 @@ export function Services() {
 
   return (
     <div>
-      <PageHeader title="الخدمات والأسعار" description="إدارة الخدمات الطبية وفئاتها وأسعارها."
-        actions={<>{canWrite && (
-          <button type="button" onClick={() => { setEditing(null); setModal(true); }} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] cursor-pointer">
-            <Plus className="w-4 h-4" /> إضافة خدمة
-          </button>
-        )}</>} />
-
       <div className="surface-card rounded-2xl p-4 mb-5">
         <div className="flex flex-col sm:flex-row gap-3 items-start">
           <SearchBar value={search} onChange={setSearch} placeholder="ابحث عن خدمة..." />
           <FilterBar onReset={() => setCat('all')} filters={[{ id: 'cat', label: 'الفئة', value: cat, onChange: setCat, options: [{ v: 'all', label: 'كل الفئات' }, ...cats.map((c: string) => ({ v: c, label: c }))] }]} />
+          {canWrite && (
+            <button type="button" onClick={() => { setEditing(null); setModal(true); }} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] cursor-pointer whitespace-nowrap">
+              <Plus className="w-4 h-4" /> إضافة خدمة
+            </button>
+          )}
         </div>
       </div>
 
@@ -627,15 +723,16 @@ export function WorkingHours() {
 
   return (
     <div>
-      <PageHeader title="مواعيد العمل والإجازات" description="جداول أيام العمل لكل فرع واستثناءات المواعيد (عطلات، ساعات خاصة)."
-        actions={<>{isSuperAdmin && (
-          <button type="button" onClick={() => setExceptionModal(true)} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] cursor-pointer">
-            <Plus className="w-4 h-4" /> استثناء جديد
-          </button>
-        )}</>} />
-
       <div className="surface-card rounded-2xl p-4 mb-5">
-        <FilterBar onReset={() => setBranchId('all')} filters={[{ id: 'branch', label: 'الفرع', value: branchId, onChange: setBranchId, options: [{ v: 'all', label: 'كل الفروع' }, ...branches.map(b => ({ v: b.id, label: b.name }))] }]} />
+        <div className="flex flex-col sm:flex-row gap-3 items-start">
+          <FilterBar onReset={() => setBranchId('all')} filters={[{ id: 'branch', label: 'الفرع', value: branchId, onChange: setBranchId, options: [{ v: 'all', label: 'كل الفروع' }, ...branches.map(b => ({ v: b.id, label: b.name }))] }]} />
+          <div className="flex-1" />
+          {isSuperAdmin && (
+            <button type="button" onClick={() => setExceptionModal(true)} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] cursor-pointer whitespace-nowrap">
+              <Plus className="w-4 h-4" /> استثناء جديد
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? <LoadingState label="جارِ تحميل المواعيد..." /> : error ? <ErrorState message={error} onRetry={load} /> : (
@@ -700,7 +797,6 @@ export function Cms() {
   const [tab, setTab] = useState<CmsTab>('announcements');
   return (
     <div>
-      <PageHeader title="إدارة المحتوى" description="الإعلانات، المراجعات، الأسئلة الشائعة، وملف الدكتور." />
       <div className="surface-card rounded-2xl p-2 mb-4 flex flex-wrap gap-1">
         {([
           { v: 'announcements', label: 'الإعلانات' },
@@ -1014,7 +1110,6 @@ export function UsersPage() {
 
   return (
     <div>
-      <PageHeader title="إدارة الطاقم" description="إضافة وإدارة حسابات الموظفين والمدراء." />
       <div className="surface-card rounded-2xl p-4 mb-4 flex items-center justify-between gap-3">
         <SearchBar value={search} onChange={setSearch} placeholder="ابحث بالاسم أو الهاتف..." />
         <button type="button" onClick={() => { setEditing(null); setModal(true); }} className="px-3 py-2 rounded-xl bg-[#0E3847] text-white text-xs font-bold flex items-center gap-1.5 whitespace-nowrap"><Plus className="w-4 h-4" /> إضافة موظف</button>
@@ -1074,7 +1169,6 @@ export function AuditLogPage() {
 
   return (
     <div>
-      <PageHeader title="سجل النشاط" description="تتبع كل التغييرات التي أجراها المستخدمون على النظام." />
       <div className="surface-card rounded-2xl p-4 mb-4">
         <SearchBar value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="ابحث بالإجراء، اسم المستخدم، أو الوصف..." />
       </div>
@@ -1111,7 +1205,6 @@ export function Profile() {
 
   return (
     <div>
-      <PageHeader title="ملفي الشخصي" description="معلوماتك الأساسية وصلاحياتك في النظام." />
       <div className="surface-card rounded-2xl p-6 flex items-center gap-4 mb-4">
         <div className="w-16 h-16 rounded-full bg-gradient-to-br from-teal-500 to-teal-700 text-white flex items-center justify-center text-xl font-extrabold">
           {user.name?.charAt(0) || '؟'}

@@ -169,39 +169,6 @@ export function EmptyState({
   );
 }
 
-// ---------- PageHeader ----------
-export function PageHeader({
-  title,
-  description,
-  breadcrumb,
-  actions,
-}: {
-  title: string;
-  description?: string;
-  breadcrumb?: string[];
-  actions?: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
-      <div>
-        {breadcrumb && (
-          <nav className="text-[11px] text-slate-400 dark:text-slate-500 mb-1.5 flex items-center gap-1.5">
-            {breadcrumb.map((b, i) => (
-              <React.Fragment key={i}>
-                {i > 0 && <ChevronLeft className="w-3 h-3" />}
-                <span className={i === breadcrumb.length - 1 ? 'text-teal-600 dark:text-teal-400 font-semibold' : ''}>{b}</span>
-              </React.Fragment>
-            ))}
-          </nav>
-        )}
-        <h1 className="text-xl sm:text-2xl font-extrabold font-tajawal text-slate-900 dark:text-white">{title}</h1>
-        {description && <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">{description}</p>}
-      </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
-    </div>
-  );
-}
-
 // ---------- StatCard ----------
 export function StatCard({
   label,
@@ -910,6 +877,22 @@ export function Pagination({
 }) {
   const pages = Math.max(1, Math.ceil(total / perPage));
   if (pages <= 1) return null;
+
+  const getPageNumbers = () => {
+    const range: (number | 'ellipsis')[] = [];
+    const delta = 2;
+    const left = Math.max(2, page - delta);
+    const right = Math.min(pages - 1, page + delta);
+
+    range.push(1);
+    if (left > 2) range.push('ellipsis');
+    for (let i = left; i <= right; i++) range.push(i);
+    if (right < pages - 1) range.push('ellipsis');
+    if (pages > 1) range.push(pages);
+
+    return range;
+  };
+
   return (
     <div className="flex items-center justify-between flex-wrap gap-3 pt-2">
       <span className="text-[11px] text-slate-500 dark:text-slate-400">
@@ -924,9 +907,10 @@ export function Pagination({
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
-        {Array.from({ length: pages }).slice(0, 7).map((_, i) => {
-          const p = i + 1;
-          return (
+        {getPageNumbers().map((p, i) =>
+          p === 'ellipsis' ? (
+            <span key={`e-${i}`} className="w-8 h-8 flex items-center justify-center text-xs text-slate-400">...</span>
+          ) : (
             <button
               key={p}
               type="button"
@@ -935,8 +919,8 @@ export function Pagination({
             >
               {p}
             </button>
-          );
-        })}
+          )
+        )}
         <button
           type="button"
           disabled={page >= pages}
