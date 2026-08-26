@@ -24,7 +24,6 @@ import {
   Review,
   FAQItem,
   Announcement,
-  AuditLog,
   NotificationRecord,
   AvailableSlot,
   DashboardStats,
@@ -342,6 +341,12 @@ export const api = {
       method: 'DELETE',
     }),
 
+  updateException: (id: string, payload: Partial<ScheduleException>) =>
+    request<{ success: boolean; message: string; data: ScheduleException }>(`/admin/exceptions/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
   // Branches & Services
   getAdminBranches: () => request<{ success: boolean; data: Branch[]; message?: string }>('/admin/branches'),
   createBranch: (payload: Omit<Branch, 'id'>) =>
@@ -457,7 +462,6 @@ export const api = {
     }),
 
   // Audit Logs, Notifications, Users
-  getAuditLogs: () => request<{ success: boolean; data: AuditLog[] }>('/admin/audit-logs'),
   getNotifications: () => request<{ success: boolean; data: NotificationRecord[] }>('/admin/notifications'),
   getUsers: () => request<{ success: boolean; data: User[] }>('/admin/users'),
   createStaffUser: (payload: any) =>

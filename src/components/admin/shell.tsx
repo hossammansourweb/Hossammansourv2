@@ -7,9 +7,7 @@ import {
   Stethoscope,
   Clock,
   FileText,
-  ShieldCheck,
   UserCog,
-  User,
   LogOut,
   Menu,
   Bell,
@@ -30,8 +28,6 @@ import {
   WorkingHours,
   Cms,
   UsersPage,
-  AuditLogPage,
-  Profile,
 } from './pages.tsx';
 
 export type AdminPageKey =
@@ -42,9 +38,7 @@ export type AdminPageKey =
   | 'services'
   | 'working-hours'
   | 'cms'
-  | 'users'
-  | 'audit'
-  | 'profile';
+  | 'users';
 
 export interface AdminPage {
   key: AdminPageKey;
@@ -68,8 +62,6 @@ export const ADMIN_PAGES: AdminPage[] = [
   { key: 'working-hours', label: 'مواعيد العمل والإجازات', icon: Clock, roles: ['super_admin', 'receptionist', 'content_editor'], section: 'عمليات' },
   { key: 'cms', label: 'محتوى الموقع', icon: FileText, roles: ['super_admin', 'content_editor'], section: 'عمليات' },
   { key: 'users', label: 'المستخدمون والصلاحيات', icon: UserCog, roles: ['super_admin'], section: 'نظام' },
-  { key: 'audit', label: 'سجل النشاط والأمان', icon: ShieldCheck, roles: ['super_admin'], section: 'نظام' },
-  { key: 'profile', label: 'الملف الشخصي', icon: User, roles: ['super_admin', 'receptionist', 'content_editor'], section: 'نظام' },
 ];
 
 type Role = 'super_admin' | 'receptionist' | 'content_editor';
@@ -159,24 +151,6 @@ function Sidebar({
       </nav>
 
       <div className="border-t border-slate-100 dark:border-[#17424C] p-2.5 space-y-1 shrink-0">
-        <button
-          type="button"
-          onClick={() => onNavigate('profile')}
-          title={collapsed ? 'الملف الشخصي' : undefined}
-          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#123842] transition-colors cursor-pointer ${collapsed ? 'justify-center' : ''}`}
-        >
-          <div className="w-8 h-8 rounded-full bg-teal-50 dark:bg-[#123842] border border-teal-100 dark:border-teal-800 flex items-center justify-center text-[#0E3847] dark:text-teal-300 text-xs font-extrabold shrink-0">
-            {(user?.name || '؟').slice(0, 1)}
-          </div>
-          {!collapsed && (
-            <div className="min-w-0 text-right">
-              <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{user?.name}</p>
-              <p className="text-[10px] text-slate-400 truncate">
-                {role === 'super_admin' ? 'مدير النظام' : role === 'receptionist' ? 'موظف استقبال' : 'محرر محتوى'}
-              </p>
-            </div>
-          )}
-        </button>
         <button
           type="button"
           onClick={() => logout()}
@@ -281,14 +255,6 @@ function MobileDrawer({
               </nav>
 
               <div className="border-t border-slate-100 dark:border-[#17424C] p-3 space-y-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => go('profile')}
-                  className="w-full flex items-center gap-3 rounded-xl px-3.5 py-3 bg-slate-50 dark:bg-[#123842] text-slate-800 dark:text-slate-100 text-sm font-bold cursor-pointer"
-                >
-                  <User className="w-5 h-5 text-teal-600" />
-                  <span>الملف الشخصي</span>
-                </button>
                 <button
                   type="button"
                   onClick={() => { setOpen(false); logout(); }}
@@ -403,13 +369,6 @@ function Header({
                 </div>
                 <button
                   type="button"
-                  onClick={() => { setProfileOpen(false); onNavigate('profile'); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-50 dark:hover:bg-[#123842] text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
-                >
-                  <User className="w-4 h-4" /> الملف الشخصي
-                </button>
-                <button
-                  type="button"
                   onClick={() => { setProfileOpen(false); logout(); }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-bold text-rose-600 cursor-pointer"
                 >
@@ -458,8 +417,6 @@ export function AdminApp({
                 {page === 'working-hours' && <WorkingHours />}
                 {page === 'cms' && <Cms />}
                 {page === 'users' && <UsersPage />}
-                {page === 'audit' && <AuditLogPage />}
-                {page === 'profile' && <Profile />}
               </motion.div>
             </AnimatePresence>
           </main>

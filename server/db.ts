@@ -15,7 +15,6 @@ import {
   Review,
   FAQItem,
   Announcement,
-  AuditLog,
   NotificationRecord,
   AvailableSlot,
   DashboardStats,
@@ -333,6 +332,17 @@ class ClinicDatabase {
     if (!doc.exists) return false;
     await ref.delete();
     return true;
+  }
+
+  public async updateException(id: string, updates: Partial<ScheduleException>): Promise<ScheduleException | null> {
+    const ref = firestore().collection(COL.exceptions).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return null;
+    const clean: any = { ...updates };
+    delete clean.id;
+    await ref.update(clean);
+    const fresh = await ref.get();
+    return fresh.data() as ScheduleException;
   }
 
   // ----------------- AVAILABLE SLOTS -----------------
@@ -856,18 +866,6 @@ class ClinicDatabase {
   }
 
   // ----------------- AUDIT LOGS & NOTIFICATIONS -----------------
-  public async getAuditLogs(limit = 100): Promise<AuditLog[]> {
-    const snap = await firestore()
-      .collection(COL.auditLogs)
-      .orderBy('timestamp', 'desc')
-      .limit(limit)
-      .get();
-    return snap.docs.map(d => {
-      const data = d.data() as any;
-      return { ...data, id: d.id, timestamp: toIso(data.timestamp) } as AuditLog;
-    });
-  }
-
   public async getNotifications(limit = 100): Promise<NotificationRecord[]> {
     const snap = await firestore()
       .collection(COL.notifications)

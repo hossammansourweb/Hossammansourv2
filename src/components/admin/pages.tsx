@@ -12,7 +12,6 @@ import {
   Clock as ClockIcon,
   TrendingUp,
   BadgeCheck,
-  ShieldCheck,
 } from 'lucide-react';
 import { api } from '../../services/api.ts';
 import { useAuth } from '../../context/AuthContext.tsx';
@@ -427,6 +426,7 @@ export function Patients() {
   const [historyPatient, setHistoryPatient] = useState<any>(null);
   const [history, setHistory] = useState<Appointment[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [mobileView, setMobileView] = useState<'cards' | 'table'>('cards');
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -472,30 +472,94 @@ export function Patients() {
 
   return (
     <div>
-      <div className="surface-card rounded-2xl p-4 mb-5">
-        <SearchBar value={search} onChange={setSearch} placeholder="ابحث عن مريض بالاسم أو الهاتف..." />
+      <div className="surface-card rounded-2xl p-4 mb-4">
+        <div className="flex flex-col gap-3">
+          <SearchBar value={search} onChange={setSearch} placeholder="ابحث عن مريض بالاسم أو الهاتف..." />
+          <div className="flex items-center justify-between">
+            <div />
+            <div className="md:hidden flex items-center gap-1 bg-slate-100 dark:bg-[#123842] rounded-xl p-1">
+              <button
+                type="button"
+                onClick={() => setMobileView('cards')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${mobileView === 'cards' ? 'bg-white dark:bg-[#1E4F5A] text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}
+              >
+                بطاقات
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileView('table')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${mobileView === 'table' ? 'bg-white dark:bg-[#1E4F5A] text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}
+              >
+                جدول
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {loading ? <LoadingState label="جارِ تحميل المرضى..." /> : error ? <ErrorState message={error} onRetry={load} /> :
         filtered.length === 0 ? <EmptyState icon={UsersIcon} title={data.length === 0 ? 'لا يوجد مرضى' : 'لا نتائج'} description={data.length === 0 ? 'لم يُسجَّل أي مرضى بعد.' : 'جرِّب بحثاً آخر.'} /> : (
-          <DataTable columns={[
-            { header: 'الاسم', render: (p: any) => <span className="font-bold">{p.name || '—'}</span> },
-            { header: 'الهاتف', render: (p: any) => <span dir="ltr" className="font-mono">{p.phone || '—'}</span> },
-            { header: 'النوع', render: (p: any) => <span>{p.isRegistered ? <Pill label="مسجّل" tone="teal" /> : <Pill label="زائر" tone="slate" />}</span> },
-            { header: 'الزيارات', render: (p: any) => <span className="font-bold">{p.totalBookings ?? 0}</span> },
-            { header: 'آخر زيارة', render: (p: any) => <span className="text-slate-500 dark:text-slate-400">{p.lastVisitDate ? formatArabicDate(p.lastVisitDate) : '—'}</span> },
-            { header: 'العمر', render: (p: any) => <span>{p.age != null ? `${p.age} سنة` : '—'}</span> },
-          ]} rows={filtered}
-            onRowClick={openHistory}
-            actions={(p) => (
-              <div onClick={e => e.stopPropagation()}>
-                <DropdownMenu align="left" items={[
-                  { label: 'عرض السجل', icon: Eye, onClick: () => openHistory(p) },
-                  ...(isSuperAdmin && p.isRegistered ? [{ label: 'تعطيل الحساب', icon: Minus, danger: true as const, onClick: () => setConfirmDeactivate(p) }] : []),
-                ]} />
-              </div>
-            )}
-          />
+          <>
+            {/* Mobile: Card View */}
+            <div className={`${mobileView === 'cards' ? 'block' : 'hidden'} md:hidden space-y-3`}>
+              {filtered.map(p => (
+                <div key={p.id} className="surface-card rounded-2xl p-4 border-r-4 border-r-teal-500 dark:border-r-teal-400">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="min-w-0 flex-1">
+                      <span className="font-bold text-slate-900 dark:text-white text-sm block truncate">{p.name || '—'}</span>
+                      <span className="font-mono text-[11px] text-teal-600 dark:text-teal-400 block" dir="ltr">{p.phone || '—'}</span>
+                    </div>
+                    {p.isRegistered ? <Pill label="مسجّل" tone="teal" /> : <Pill label="زائر" tone="slate" />}
+                  </div>
+                  <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[11px] text-slate-600 dark:text-slate-300">
+                    <span className="flex items-center gap-1.5"><Calendar className="w-3 h-3 text-slate-400" /> <b>{p.totalBookings ?? 0}</b> زيارة</span>
+                    <span className="flex items-center gap-1.5"><ClockIcon className="w-3 h-3 text-slate-400" /> {p.lastVisitDate ? formatArabicDate(p.lastVisitDate) : '—'}</span>
+                    {p.age != null && <span className="flex items-center gap-1.5"><UsersIcon className="w-3 h-3 text-slate-400" /> {p.age} سنة</span>}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-100 dark:border-[#1E4F5A]">
+                    <button
+                      type="button"
+                      onClick={() => openHistory(p)}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-[#123842] text-slate-600 dark:text-slate-300 text-[11px] font-bold hover:bg-slate-200 cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> عرض السجل
+                    </button>
+                    {isSuperAdmin && p.isRegistered && (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeactivate(p)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 text-[11px] font-bold hover:bg-rose-100 cursor-pointer"
+                      >
+                        <Minus className="w-3.5 h-3.5" /> تعطيل
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table + Mobile Table */}
+            <div className={`${mobileView === 'table' ? 'block' : 'hidden'} md:block`}>
+              <DataTable columns={[
+                { header: 'الاسم', render: (p: any) => <span className="font-bold">{p.name || '—'}</span> },
+                { header: 'الهاتف', render: (p: any) => <span dir="ltr" className="font-mono">{p.phone || '—'}</span> },
+                { header: 'النوع', render: (p: any) => <span>{p.isRegistered ? <Pill label="مسجّل" tone="teal" /> : <Pill label="زائر" tone="slate" />}</span> },
+                { header: 'الزيارات', render: (p: any) => <span className="font-bold">{p.totalBookings ?? 0}</span> },
+                { header: 'آخر زيارة', render: (p: any) => <span className="text-slate-500 dark:text-slate-400">{p.lastVisitDate ? formatArabicDate(p.lastVisitDate) : '—'}</span> },
+                { header: 'العمر', render: (p: any) => <span>{p.age != null ? `${p.age} سنة` : '—'}</span> },
+              ]} rows={filtered}
+                onRowClick={openHistory}
+                actions={(p) => (
+                  <div onClick={e => e.stopPropagation()}>
+                    <DropdownMenu align="left" items={[
+                      { label: 'عرض السجل', icon: Eye, onClick: () => openHistory(p) },
+                      ...(isSuperAdmin && p.isRegistered ? [{ label: 'تعطيل الحساب', icon: Minus, danger: true as const, onClick: () => setConfirmDeactivate(p) }] : []),
+                    ]} />
+                  </div>
+                )}
+              />
+            </div>
+          </>
         )}
 
       <ConfirmDialog open={!!confirmDeactivate} title="إيقاف تنشيط الحساب؟" danger confirmLabel="إيقاف التنشيط"

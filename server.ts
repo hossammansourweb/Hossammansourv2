@@ -733,6 +733,14 @@ app.delete('/api/admin/exceptions/:id', authenticateToken, requireRoles('super_a
   res.json({ success: true, message: 'تم حذف الاستثناء بنجاح.' });
 }));
 
+app.put('/api/admin/exceptions/:id', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {
+  const adminUser = req.user!;
+  const updated = await db.updateException(req.params.id, req.body);
+  if (!updated) return res.status(404).json({ success: false, message: 'الاستثناء غير موجود.' });
+  await db.logAudit(adminUser.id, adminUser.name, adminUser.role, 'UPDATE_SCHEDULE_EXCEPTION', 'ScheduleException', req.params.id, `تحديث استثناء المواعيد: ${updated.reason}`);
+  res.json({ success: true, message: 'تم تحديث الاستثناء بنجاح.', data: updated });
+}));
+
 // ----------------------------------------------------
 // 6. BRANCH & SERVICE MANAGEMENT
 // ----------------------------------------------------
@@ -882,12 +890,8 @@ app.put('/api/admin/content/announcements/:id', authenticateToken, requireRoles(
 }));
 
 // ----------------------------------------------------
-// 8. SYSTEM, AUDIT LOGS & NOTIFICATIONS
+// 8. NOTIFICATIONS
 // ----------------------------------------------------
-
-app.get('/api/admin/audit-logs', authenticateToken, requireRoles('super_admin'), wrap(async (req, res) => {
-  res.json({ success: true, data: await db.getAuditLogs(100) });
-}));
 
 app.get('/api/admin/notifications', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req, res) => {
   res.json({ success: true, data: await db.getNotifications(100) });
@@ -898,7 +902,7 @@ app.get('/api/admin/users', authenticateToken, requireRoles('super_admin'), wrap
 }));
 
 // ----------------------------------------------------
-// 8. SEARCH ENDPOINTS (read-only, role-based access)
+// 9. SEARCH ENDPOINTS (read-only, role-based access)
 // ----------------------------------------------------
 
 // Search appointments — super_admin, receptionist
@@ -983,22 +987,6 @@ app.get('/api/search/services', authenticateToken, requireRoles('super_admin', '
     list = services.filter(svc => svc.name.toLowerCase().includes(needle) || (svc.description && svc.description.toLowerCase().includes(needle)));
   }
   res.json({ success: true, data: list });
-}));
-
-// ----------------------------------------------------
-// 9. SYSTEM, AUDIT LOGS & NOTIFICATIONS
-// ----------------------------------------------------
-
-app.get('/api/admin/audit-logs', authenticateToken, requireRoles('super_admin'), wrap(async (req, res) => {
-  res.json({ success: true, data: await db.getAuditLogs(100) });
-}));
-
-app.get('/api/admin/notifications', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req, res) => {
-  res.json({ success: true, data: await db.getNotifications(100) });
-}));
-
-app.get('/api/admin/users', authenticateToken, requireRoles('super_admin'), wrap(async (req, res) => {
-  res.json({ success: true, data: await db.getUsers() });
 }));
 
 app.post('/api/admin/users', authenticateToken, requireRoles('super_admin'), wrap(async (req: AuthRequest, res) => {

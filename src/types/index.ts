@@ -156,18 +156,6 @@ export interface Announcement {
   createdAt: string;
 }
 
-export interface AuditLog {
-  id: string;
-  userId: string;
-  userName: string;
-  userRole: string;
-  action: string;
-  entityType: string;
-  entityId: string;
-  details: string;
-  timestamp: string;
-}
-
 export interface NotificationRecord {
   id: string;
   appointmentId?: string;

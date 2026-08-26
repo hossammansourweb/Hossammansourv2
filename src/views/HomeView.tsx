@@ -562,7 +562,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
         <div className="relative overflow-hidden rounded-3xl bg-linear-to-br from-[#0E3847] via-[#114956] to-[#0B303A] dark:from-[#10333C] dark:to-[#0B252C] text-white p-8 sm:p-12 text-center space-y-5 shadow-xl border border-teal-900/40 dark:border-[#1A4B56]">
           <div className="absolute -left-16 -top-20 w-56 h-56 rounded-full border border-white/10" aria-hidden="true" />
           <div className="absolute -right-24 -bottom-28 w-72 h-72 rounded-full border border-[#E05A47]/25" aria-hidden="true" />
-          <h2 className="text-2xl sm:text-3xl font-extrabold">
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
             جاهز لحجز موعدك الطبي؟
           </h2>
           <p className="text-xs sm:text-sm text-slate-300 max-w-xl mx-auto leading-relaxed">
