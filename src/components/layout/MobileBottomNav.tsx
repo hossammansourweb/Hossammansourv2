@@ -33,7 +33,6 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       label: 'حجز موعد',
       icon: Calendar,
       action: () => onNavigate('booking'),
-      accent: true,
     },
     {
       id: 'patient-portal',
@@ -66,15 +65,13 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               type="button"
               onClick={item.action}
               className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl py-2 px-1.5 min-w-0 transition-all active:scale-95 cursor-pointer ${
-                item.accent
-                  ? 'bg-[#E05A47] text-white shadow-md shadow-[#E05A47]/30'
-                  : isActive
-                    ? 'bg-[#E5F1F3] dark:bg-[#1A4854] text-[#0E3847] dark:text-teal-200 font-bold shadow-2xs'
-                    : 'text-slate-700 dark:text-slate-300 hover:text-slate-900'
+                isActive
+                  ? 'bg-[#E5F1F3] dark:bg-[#1A4854] text-[#0E3847] dark:text-teal-200 font-bold shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-slate-900'
               }`}
               aria-label={item.label}
             >
-              <Icon className={`w-5 h-5 ${item.accent ? 'text-white' : ''}`} />
+              <Icon className="w-5 h-5" />
               <span className="text-[11px] font-tajawal font-bold leading-none text-center">{item.label}</span>
             </button>
           );

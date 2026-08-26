@@ -24,6 +24,8 @@ import {
   Eye,
   Loader2,
   UploadCloud,
+  RefreshCw,
+  LogOut,
 } from 'lucide-react';
 
 interface PatientPortalViewProps {
@@ -32,17 +34,38 @@ interface PatientPortalViewProps {
   initialTab?: 'appointments' | 'records' | 'profile' | 'lookup' | 'prescriptions';
 }
 
+const TABS = {
+  appointments: { label: 'مواعيدي', icon: Calendar },
+  records: { label: 'سجل الكشوفات', icon: FileText },
+  prescriptions: { label: 'روشتاتي', icon: ImageIcon },
+  profile: { label: 'بياناتي', icon: User },
+} as const;
+
+const MONTHS = [
+  'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+  'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
+];
+const WEEKDAYS = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+function getDateParts(dateStr: string) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return { day: d, month: MONTHS[m - 1], weekday: WEEKDAYS[date.getDay()] };
+}
+
 export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate, onOpenAuth, initialTab }) => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'appointments' | 'records' | 'profile' | 'lookup' | 'prescriptions'>(
     initialTab || (user ? 'appointments' : 'lookup')
   );
 
   const [prescriptionCount, setPrescriptionCount] = useState(0);
+  const [recordsCount, setRecordsCount] = useState(0);
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(false);
+  const [aptError, setAptError] = useState<string | null>(null);
 
   // Guest lookup by code & phone
   const [lookupCode, setLookupCode] = useState('');
@@ -68,13 +91,18 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
   const fetchPatientData = async () => {
     if (!user) return;
     setLoading(true);
+    setAptError(null);
     try {
       const aptsRes = await api.getPatientAppointments();
       if (aptsRes.success && aptsRes.data) {
         setAppointments(aptsRes.data);
+        setRecordsCount(aptsRes.data.filter(a => a.status === 'completed' || a.clinicInternalNotes).length);
+      } else {
+        setAptError('تعذر تحميل مواعيدك في الوقت الحالي.');
       }
     } catch (err) {
       console.error(err);
+      setAptError('حدث خطأ أثناء تحميل المواعيد. يرجى المحاولة مرة أخرى.');
     } finally {
       setLoading(false);
     }
@@ -99,6 +127,11 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
   useEffect(() => {
     if (initialTab) setActiveTab(initialTab);
   }, [initialTab]);
+
+  const upcomingApts = appointments
+    .filter(a => a.status !== 'cancelled' && a.status !== 'completed')
+    .sort((a, b) => `${a.appointmentDate}${a.appointmentTime}`.localeCompare(`${b.appointmentDate}${b.appointmentTime}`));
+  const nextApt = upcomingApts[0];
 
   const handleLookupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -151,491 +184,629 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
 
   return (
     <ToastProvider>
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8 text-right" dir="rtl">
-      {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 sm:p-7 rounded-2xl bg-[#0E3847] text-white shadow-md">
-        <div className="space-y-1">
-          <div className="inline-flex items-center gap-2 text-xs font-bold text-[#E05A47]">
-            <span className="w-2 h-2 rounded-full bg-[#E05A47]" />
-            <span>بوابة المريض</span>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-extrabold text-white">
-            {user ? `أهلاً بك، ${user.name}` : 'متابعة المواعيد والملف الطبي'}
-          </h1>
-          <p className="text-xs text-slate-300">
-            {user
-              ? 'متابعة مواعيدك القادمة، تحميل تفاصيل الكشوفات، وإدارة بياناتك.'
-              : 'استعلم عن حجزك برقم الحجز ورقم الهاتف، أو سجل دخولك لإدارة حسابك.'}
-          </p>
-        </div>
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-9 space-y-6 sm:space-y-8 text-right" dir="rtl">
 
-        <div className="flex items-center gap-3">
-          {user ? (
-            <button
-              type="button"
-              onClick={() => onNavigate('booking')}
-              className="px-4 py-2.5 rounded-xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-xs shadow-md transition-colors flex items-center gap-1.5"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>حجز موعد جديد</span>
-            </button>
-          ) : (
+        {/* ============ WELCOME / HEADER ============ */}
+        {user ? (
+          <div className="relative overflow-hidden rounded-3xl bg-[#0E3847] text-white shadow-lg shadow-[#0E3847]/10">
+            <div className="absolute inset-0 opacity-60 pointer-events-none hero-glow" aria-hidden />
+            <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-5 p-6 sm:p-7">
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/10 backdrop-blur flex items-center justify-center shrink-0 ring-1 ring-white/15">
+                  <span className="text-xl sm:text-2xl font-extrabold text-white">
+                    {(user.name || 'م').trim().charAt(0)}
+                  </span>
+                </div>
+                <div className="space-y-1 min-w-0">
+                  <div className="inline-flex items-center gap-2 text-[11px] font-bold text-[#F8A89C]">
+                    <span className="w-2 h-2 rounded-full bg-[#E05A47]" />
+                    <span>بوابة المريض</span>
+                  </div>
+                  <h1 className="text-lg sm:text-2xl font-extrabold text-white truncate">
+                    أهلاً بك، {user.name}
+                  </h1>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {nextApt
+                      ? `موعدك القادم: ${formatArabicDate(nextApt.appointmentDate)} — ${formatArabicTime(nextApt.appointmentTime)}`
+                      : 'متابعة مواعيدك، الروشتات، والملف الطبي في مكان واحد.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => onNavigate('booking')}
+                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-3 sm:py-2.5 rounded-2xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-xs sm:text-sm shadow-md transition-colors active:scale-[0.98] cursor-pointer"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>حجز موعد جديد</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => logout()}
+                  aria-label="تسجيل الخروج"
+                  className="w-11 h-11 rounded-2xl bg-white/10 hover:bg-white/20 ring-1 ring-white/15 text-white flex items-center justify-center transition-colors active:scale-95 cursor-pointer"
+                >
+                  <LogOut className="w-4.5 h-4.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="relative overflow-hidden rounded-3xl bg-[#0E3847] text-white shadow-lg shadow-[#0E3847]/10">
+            <div className="absolute inset-0 opacity-60 pointer-events-none hero-glow" aria-hidden />
+            <div className="relative p-6 sm:p-7 flex flex-col sm:flex-row sm:items-center justify-between gap-5">
+              <div className="space-y-1.5">
+                <div className="inline-flex items-center gap-2 text-[11px] font-bold text-[#F8A89C]">
+                  <span className="w-2 h-2 rounded-full bg-[#E05A47]" />
+                  <span>بوابة المريض</span>
+                </div>
+                <h1 className="text-lg sm:text-2xl font-extrabold text-white">
+                  متابعة المواعيد والملف الطبي
+                </h1>
+                <p className="text-xs text-slate-300 leading-relaxed max-w-md">
+                  استعلم عن حجزك برقم الحجز ورقم الهاتف، أو سجّل دخولك لإدارة مواعيدك وروشتاتك بسهولة.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpenAuth('login')}
+                className="inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-2xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-sm shadow-md transition-colors active:scale-[0.98] cursor-pointer shrink-0"
+              >
+                <User className="w-4 h-4" />
+                <span>تسجيل الدخول</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ============ QUICK ACTIONS ============ */}
+        {user ? (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <QuickAction
+              icon={Calendar}
+              label="مواعيدي"
+              hint={`${appointments.length} موعد`}
+              active={activeTab === 'appointments'}
+              onClick={() => setActiveTab('appointments')}
+              accent="teal"
+            />
+            <QuickAction
+              icon={ImageIcon}
+              label="روشتاتي"
+              hint={prescriptionCount ? `${prescriptionCount} روشتة` : 'لا يوجد'}
+              active={activeTab === 'prescriptions'}
+              onClick={() => setActiveTab('prescriptions')}
+              accent="coral"
+            />
+            <QuickAction
+              icon={FileText}
+              label="سجل الكشوفات"
+              hint={recordsCount ? `${recordsCount} تقرير` : 'لا يوجد'}
+              active={activeTab === 'records'}
+              onClick={() => setActiveTab('records')}
+              accent="blue"
+            />
+            <QuickAction
+              icon={User}
+              label="بياناتي الشخصية"
+              hint="تعديل الحساب"
+              active={activeTab === 'profile'}
+              onClick={() => setActiveTab('profile')}
+              accent="slate"
+            />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <button
               type="button"
               onClick={() => onOpenAuth('login')}
-              className="px-4 py-2.5 rounded-xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-xs shadow-md transition-colors flex items-center gap-1.5"
+              className="flex items-center gap-3 p-4 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs hover:border-[#E05A47]/40 transition-colors text-right cursor-pointer"
             >
-              <User className="w-4 h-4" />
-              <span>تسجيل الدخول</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Navigation Tabs */}
-      <div className="flex rounded-xl bg-slate-100 dark:bg-[#10333C] p-1 gap-1 border border-transparent dark:border-[#17424C]">
-        {user ? (
-          <>
-            <button
-              type="button"
-              onClick={() => setActiveTab('appointments')}
-              className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeTab === 'appointments'
-                  ? 'bg-white dark:bg-[#123842] text-[#0E3847] dark:text-white shadow-2xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>مواعيدي ({appointments.length})</span>
+              <span className="w-11 h-11 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white flex items-center justify-center shrink-0">
+                <User className="w-5 h-5" />
+              </span>
+              <span className="text-sm font-bold text-slate-900 dark:text-white">تسجيل الدخول لحسابي</span>
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('records')}
-              className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeTab === 'records'
-                  ? 'bg-white dark:bg-[#123842] text-[#0E3847] dark:text-white shadow-2xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-              }`}
+              onClick={() => setActiveTab('lookup')}
+              className="flex items-center gap-3 p-4 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs hover:border-[#E05A47]/40 transition-colors text-right cursor-pointer"
             >
-              <FileText className="w-3.5 h-3.5" />
-              <span>سجل الكشوفات ({appointments.filter(a => a.status === 'completed' || a.clinicInternalNotes).length})</span>
+              <span className="w-11 h-11 rounded-xl bg-[#E05A47] text-white flex items-center justify-center shrink-0">
+                <Search className="w-5 h-5" />
+              </span>
+              <span className="text-sm font-bold text-slate-900 dark:text-white">الاستعلام عن موعد</span>
             </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('profile')}
-              className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeTab === 'profile'
-                  ? 'bg-white dark:bg-[#123842] text-[#0E3847] dark:text-white shadow-2xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-              }`}
-            >
-              <User className="w-3.5 h-3.5" />
-              <span>بياناتي الشخصية</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('prescriptions')}
-              className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeTab === 'prescriptions'
-                  ? 'bg-white dark:bg-[#123842] text-[#0E3847] dark:text-white shadow-2xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-              }`}
-            >
-              <ImageIcon className="w-3.5 h-3.5" />
-              <span>روشتاتي ({prescriptionCount})</span>
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setActiveTab('lookup')}
-            className="flex-1 py-2.5 text-xs sm:text-sm font-bold rounded-lg bg-white dark:bg-[#123842] text-[#0E3847] dark:text-white shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <Search className="w-4 h-4" />
-            <span>الاستعلام السريع عن موعد برقم الحجز</span>
-          </button>
-        )}
-      </div>
-
-      {/* TAB 1: GUEST LOOKUP */}
-      {activeTab === 'lookup' && (
-        <div className="p-6 sm:p-8 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs space-y-6">
-          <div className="max-w-md mx-auto space-y-4">
-            <h2 className="text-sm font-bold text-[#0E3847] dark:text-white text-center">
-              الاستعلام عن تفاصيل الموعد برقم الحجز
-            </h2>
-            <form onSubmit={handleLookupSubmit} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  رقم الحجز المرجعي (Booking Ref)
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="مثال: HM-749213"
-                  value={lookupCode}
-                  onChange={e => setLookupCode(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47] text-center font-mono"
-                  dir="ltr"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  رقم الهاتف المسجل في الحجز
-                </label>
-                <input
-                  type="tel"
-                  required
-                  placeholder="01100171817"
-                  value={lookupPhone}
-                  onChange={e => setLookupPhone(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47] text-center"
-                  dir="ltr"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={lookupLoading}
-                className="w-full py-3 rounded-xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Search className="w-4 h-4" />
-                {lookupLoading ? 'جاري البحث...' : 'استعلام عن الموعد'}
-              </button>
-            </form>
-
-            {lookupError && (
-              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-300">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{lookupError}</span>
-              </div>
-            )}
-
-            {lookedUpApt && (
-              <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] space-y-3 animate-in fade-in">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-[#17424C]">
-                  <div>
-                    <span className="text-xs text-slate-400 block">رقم الحجز</span>
-                    <span className="text-sm font-bold font-mono text-[#E05A47]">
-                      {lookedUpApt.bookingNumber}
-                    </span>
-                  </div>
-                  <StatusBadge status={lookedUpApt.status} />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2.5 text-xs">
-                  <div><strong className="text-slate-400 block">المريض:</strong> {lookedUpApt.patientName}</div>
-                  <div><strong className="text-slate-400 block">الفرع:</strong> {lookedUpApt.branchName}</div>
-                  <div><strong className="text-slate-400 block">التاريخ:</strong> {formatArabicDate(lookedUpApt.appointmentDate)}</div>
-                  <div><strong className="text-slate-400 block">الوقت:</strong> <span className="text-[#E05A47] font-bold">{formatArabicTime(lookedUpApt.appointmentTime)}</span></div>
-                </div>
-
-                <div className="pt-2 flex items-center justify-between gap-2 border-t border-slate-200 dark:border-[#17424C]">
-                  <CalendarExportButton appointment={lookedUpApt} />
-                  {lookedUpApt.status !== 'cancelled' && lookedUpApt.status !== 'completed' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTargetApt(lookedUpApt);
-                        setCancelModalOpen(true);
-                      }}
-                      className="text-xs text-rose-600 dark:text-rose-400 hover:underline font-bold cursor-pointer"
-                    >
-                      طلب إلغاء الموعد
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* TAB 2: APPOINTMENTS LIST */}
-      {activeTab === 'appointments' && (
-        <div className="space-y-4">
-          {loading ? (
-            <LoadingSpinner message="جاري تحميل مواعيدك..." />
-          ) : appointments.length === 0 ? (
-            <EmptyState
-              icon={Calendar}
-              title="لا توجد مواعيد مسجلة حتى الآن"
-              description="يمكنك حجز موعد كشف جديد بكل سهولة واختيار الفرع المناسب."
-              action={{
-                label: 'احجز كشف طبي الآن',
-                onClick: () => onNavigate('booking'),
-              }}
-            />
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {(appointments || []).map(apt => (
-                <div
-                  key={apt.id}
-                  className="p-5 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs space-y-3 flex flex-col justify-between"
+        {/* ============ SECTION TITLE ============ */}
+        {user && activeTab !== 'lookup' && (
+          <div className="flex items-center gap-2 pt-1">
+            <span className="w-1.5 h-6 rounded-full bg-[#E05A47]" aria-hidden />
+            <h2 className="text-base sm:text-lg font-extrabold text-[#0E3847] dark:text-white">
+              {TABS[activeTab].label}
+            </h2>
+          </div>
+        )}
+
+        {/* ============ TAB: GUEST LOOKUP ============ */}
+        {activeTab === 'lookup' && (
+          <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 duration-300 p-6 sm:p-8 rounded-3xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs">
+            <div className="max-w-md mx-auto space-y-5">
+              <div className="text-center space-y-1">
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-[#0E3847] dark:bg-teal-700 text-white flex items-center justify-center">
+                  <Search className="w-6 h-6" />
+                </div>
+                <h2 className="text-sm font-bold text-[#0E3847] dark:text-white">
+                  الاستعلام عن تفاصيل الموعد برقم الحجز
+                </h2>
+              </div>
+              <form onSubmit={handleLookupSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    رقم الحجز المرجعي (Booking Ref)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="مثال: HM-749213"
+                    value={lookupCode}
+                    onChange={e => setLookupCode(e.target.value)}
+                    className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47] text-center font-mono"
+                    dir="ltr"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    رقم الهاتف المسجل في الحجز
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="01100171817"
+                    value={lookupPhone}
+                    onChange={e => setLookupPhone(e.target.value)}
+                    className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47] text-center"
+                    dir="ltr"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={lookupLoading}
+                  className="w-full py-3.5 rounded-2xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-sm shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 active:scale-[0.98]"
                 >
-                  <div className="space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#153E48] text-slate-700 dark:text-slate-200">
-                        {apt.bookingNumber}
+                  {lookupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                  {lookupLoading ? 'جاري البحث...' : 'استعلام عن الموعد'}
+                </button>
+              </form>
+
+              {lookupError && (
+                <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-300">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{lookupError}</span>
+                </div>
+              )}
+
+              {lookedUpApt && (
+                <div className="motion-safe:animate-in motion-safe:fade-in duration-300 p-4 rounded-2xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-[#17424C]">
+                    <div>
+                      <span className="text-xs text-slate-400 block">رقم الحجز</span>
+                      <span className="text-sm font-bold font-mono text-[#E05A47]">
+                        {lookedUpApt.bookingNumber}
                       </span>
-                      <StatusBadge status={apt.status} />
                     </div>
-
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                      {apt.serviceName || 'كشف عظام واستشارة'}
-                    </h3>
-
-                    <div className="space-y-1.5 text-xs text-slate-500 dark:text-slate-300">
-                      <div className="flex items-center gap-1.5">
-                        <MapPin className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
-                        <span>{apt.branchName}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
-                        <span>{formatArabicDate(apt.appointmentDate)}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-[#E05A47] shrink-0" />
-                        <span className="font-bold text-[#E05A47]">
-                          {formatArabicTime(apt.appointmentTime)}
-                        </span>
-                      </div>
-                    </div>
+                    <StatusBadge status={lookedUpApt.status} />
                   </div>
 
-                  <div className="pt-3 border-t border-slate-100 dark:border-[#17424C] flex items-center justify-between gap-2">
-                    <CalendarExportButton appointment={apt} />
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div><strong className="text-slate-400 block mb-0.5">المريض:</strong> <span className="text-slate-700 dark:text-slate-100">{lookedUpApt.patientName}</span></div>
+                    <div><strong className="text-slate-400 block mb-0.5">الفرع:</strong> <span className="text-slate-700 dark:text-slate-100">{lookedUpApt.branchName}</span></div>
+                    <div><strong className="text-slate-400 block mb-0.5">التاريخ:</strong> <span className="text-slate-700 dark:text-slate-100">{formatArabicDate(lookedUpApt.appointmentDate)}</span></div>
+                    <div><strong className="text-slate-400 block mb-0.5">الوقت:</strong> <span className="text-[#E05A47] font-bold">{formatArabicTime(lookedUpApt.appointmentTime)}</span></div>
+                  </div>
 
-                    {apt.status !== 'cancelled' && apt.status !== 'completed' && (
+                  <div className="pt-2 flex items-center justify-between gap-2 border-t border-slate-200 dark:border-[#17424C]">
+                    <CalendarExportButton appointment={lookedUpApt} />
+                    {lookedUpApt.status !== 'cancelled' && lookedUpApt.status !== 'completed' && (
                       <button
                         type="button"
                         onClick={() => {
-                          setTargetApt(apt);
+                          setTargetApt(lookedUpApt);
                           setCancelModalOpen(true);
                         }}
-                        className="text-xs font-bold text-rose-600 dark:text-rose-400 hover:text-rose-700 hover:underline cursor-pointer"
+                        className="text-xs text-rose-600 dark:text-rose-400 hover:underline font-bold cursor-pointer"
                       >
-                        إلغاء الموعد
+                        طلب إلغاء الموعد
                       </button>
                     )}
                   </div>
                 </div>
-              ))}
+              )}
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
 
-      {/* TAB 3: MEDICAL RECORDS */}
-      {activeTab === 'records' && (
-        <div className="space-y-4">
-          {appointments.filter(a => a.status === 'completed' || a.clinicInternalNotes).length === 0 ? (
-            <EmptyState
-              icon={FileText}
-              title="لا توجد تقارير أو كشوفات سابقة مكتملة"
-              description="ستظهر هنا تشخيصات الكشف والملاحظات الطبية بعد إتمام الزيارة بالعيادة."
-            />
-          ) : (
-            <div className="space-y-3">
-              {appointments
-                .filter(a => a.status === 'completed' || a.clinicInternalNotes)
-                .map(apt => (
-                  <div
-                    key={apt.id}
-                    className="p-5 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs space-y-3"
-                  >
-                    <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-[#17424C]">
-                      <div>
-                        <span className="text-xs text-slate-400 block">
-                          {formatArabicDate(apt.appointmentDate)} — {apt.branchName}
-                        </span>
-                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                          {apt.serviceName || 'كشف عظام ومفاصل'}
-                        </h3>
-                      </div>
-                      <StatusBadge status={apt.status} size="sm" />
-                    </div>
-
-                    <div className="space-y-2 text-xs">
-                      <div>
-                        <strong className="text-slate-500 dark:text-slate-400 ml-1">كود الحجز:</strong>
-                        <span className="font-mono text-[#E05A47]">{apt.bookingNumber}</span>
-                      </div>
-
-                      {apt.clinicInternalNotes && (
-                        <div className="p-3 rounded-xl bg-teal-50/50 dark:bg-[#123842] border border-teal-100 dark:border-[#1F4E5A] text-xs text-teal-900 dark:text-teal-200">
-                          <strong>ملاحظات وتشخيص العيادة: </strong>
-                          {apt.clinicInternalNotes}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+        {/* ============ TAB: APPOINTMENTS ============ */}
+        {activeTab === 'appointments' && user && (
+          <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 duration-300 space-y-4">
+            {loading ? (
+              <LoadingSpinner message="جاري تحميل مواعيدك..." />
+            ) : aptError ? (
+              <div className="p-5 rounded-3xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs text-center space-y-3">
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-300">{aptError}</p>
+                <button
+                  type="button"
+                  onClick={fetchPatientData}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-4 h-4" /> إعادة المحاولة
+                </button>
+              </div>
+            ) : appointments.length === 0 ? (
+              <EmptyState
+                icon={Calendar}
+                title="لا توجد مواعيد مسجلة حتى الآن"
+                description="يمكنك حجز موعد كشف جديد بكل سهولة واختيار الفرع المناسب."
+                action={{
+                  label: 'احجز كشف طبي الآن',
+                  onClick: () => onNavigate('booking'),
+                }}
+              />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {appointments.map(apt => (
+                  <React.Fragment key={apt.id}>
+                    <AppointmentCard
+                      apt={apt}
+                      onCancel={() => {
+                        setTargetApt(apt);
+                        setCancelModalOpen(true);
+                      }}
+                    />
+                  </React.Fragment>
                 ))}
-            </div>
-          )}
-        </div>
-      )}
+              </div>
+            )}
+          </div>
+        )}
 
-      {/* TAB 4: PROFILE SETTINGS */}
-      {activeTab === 'profile' && user && (
-        <form
-          onSubmit={handleProfileSave}
-          className="p-6 sm:p-7 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs space-y-5"
+        {/* ============ TAB: MEDICAL RECORDS ============ */}
+        {activeTab === 'records' && user && (
+          <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 duration-300 space-y-4">
+            {loading ? (
+              <LoadingSpinner message="جاري تحميل السجل الطبي..." />
+            ) : recordsCount === 0 ? (
+              <EmptyState
+                icon={FileText}
+                title="لا توجد تقارير أو كشوفات سابقة مكتملة"
+                description="ستظهر هنا تشخيصات الكشف والملاحظات الطبية بعد إتمام الزيارة بالعيادة."
+              />
+            ) : (
+              <div className="space-y-3">
+                {appointments
+                  .filter(a => a.status === 'completed' || a.clinicInternalNotes)
+                  .map(apt => (
+                    <div
+                      key={apt.id}
+                      className="surface-card p-5 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] space-y-3"
+                    >
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-[#17424C]">
+                        <div>
+                          <span className="text-xs text-slate-400 block mb-0.5">
+                            {formatArabicDate(apt.appointmentDate)} — {apt.branchName}
+                          </span>
+                          <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                            {apt.serviceName || 'كشف عظام ومفاصل'}
+                          </h3>
+                        </div>
+                        <StatusBadge status={apt.status} size="sm" />
+                      </div>
+
+                      <div className="space-y-2 text-xs">
+                        <div>
+                          <strong className="text-slate-500 dark:text-slate-400 ml-1">كود الحجز:</strong>
+                          <span className="font-mono text-[#E05A47]">{apt.bookingNumber}</span>
+                        </div>
+
+                        {apt.clinicInternalNotes && (
+                          <div className="p-3 rounded-xl bg-teal-50/50 dark:bg-[#123842] border border-teal-100 dark:border-[#1F4E5A] text-xs text-teal-900 dark:text-teal-200 leading-relaxed">
+                            <strong>ملاحظات وتشخيص العيادة: </strong>
+                            {apt.clinicInternalNotes}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============ TAB: PROFILE ============ */}
+        {activeTab === 'profile' && user && (
+          <form
+            onSubmit={handleProfileSave}
+            className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 duration-300 p-6 sm:p-7 rounded-3xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs space-y-5"
+          >
+            <div className="flex items-center gap-3">
+              <span className="w-11 h-11 rounded-2xl bg-[#0E3847] dark:bg-teal-700 text-white flex items-center justify-center shrink-0">
+                <User className="w-5 h-5" />
+              </span>
+              <div>
+                <h2 className="text-sm font-bold text-[#0E3847] dark:text-white">تحديث البيانات الشخصية</h2>
+                <p className="text-[11px] text-slate-400">يمكنك تعديل بياناتك في أي وقت.</p>
+              </div>
+            </div>
+
+            {profSuccess && (
+              <div className="p-3 rounded-2xl bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{profSuccess}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  الاسم بالكامل
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={profName}
+                  onChange={e => setProfName(e.target.value)}
+                  className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  رقم الهاتف
+                </label>
+                <input
+                  type="tel"
+                  required
+                  value={profPhone}
+                  onChange={e => setProfPhone(e.target.value)}
+                  className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
+                  dir="ltr"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  البريد الإلكتروني
+                </label>
+                <input
+                  type="email"
+                  value={profEmail}
+                  onChange={e => setProfEmail(e.target.value)}
+                  className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    النوع
+                  </label>
+                  <select
+                    value={profGender}
+                    onChange={e => setProfGender(e.target.value as any)}
+                    className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
+                  >
+                    <option value="male">ذكر</option>
+                    <option value="female">أنثى</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    العمر
+                  </label>
+                  <input
+                    type="number"
+                    value={profAge}
+                    onChange={e => setProfAge(e.target.value)}
+                    className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="submit"
+                className="px-6 py-3 rounded-2xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-xs sm:text-sm shadow-md transition-colors cursor-pointer active:scale-[0.98]"
+              >
+                حفظ التعديلات
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* ============ TAB: PRESCRIPTIONS ============ */}
+        {activeTab === 'prescriptions' && user && (
+          <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 duration-300">
+            <PrescriptionsPanel onCountChange={setPrescriptionCount} />
+          </div>
+        )}
+
+        {/* ============ CANCEL CONFIRMATION MODAL ============ */}
+        <Modal
+          isOpen={cancelModalOpen}
+          onClose={() => setCancelModalOpen(false)}
+          title="تأكيد إلغاء موعد الكشف"
+          maxWidth="sm"
         >
-          <h2 className="text-sm font-bold text-[#0E3847] dark:text-white">
-            تحديث البيانات الشخصية
-          </h2>
+          <div className="space-y-4 text-right" dir="rtl">
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              هل أنت متأكد من رغبتك في إلغاء حجز الموعد رقم{' '}
+              <strong className="font-mono text-[#E05A47]">{targetApt?.bookingNumber}</strong> بتاريخ{' '}
+              {targetApt && formatArabicDate(targetApt.appointmentDate)}؟
+            </p>
 
-          {profSuccess && (
-            <div className="p-3 rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>{profSuccess}</span>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                الاسم بالكامل
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                سبب الإلغاء (اختياري)
               </label>
               <input
                 type="text"
-                required
-                value={profName}
-                onChange={e => setProfName(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
+                placeholder="مثال: تغيير الموعد، ظرف طارئ..."
+                value={cancelReason}
+                onChange={e => setCancelReason(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                رقم الهاتف
-              </label>
-              <input
-                type="tel"
-                required
-                value={profPhone}
-                onChange={e => setProfPhone(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
-                dir="ltr"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                البريد الإلكتروني
-              </label>
-              <input
-                type="email"
-                value={profEmail}
-                onChange={e => setProfEmail(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
-                dir="ltr"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  النوع
-                </label>
-                <select
-                  value={profGender}
-                  onChange={e => setProfGender(e.target.value as any)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
-                >
-                  <option value="male">ذكر</option>
-                  <option value="female">أنثى</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  العمر
-                </label>
-                <input
-                  type="number"
-                  value={profAge}
-                  onChange={e => setProfAge(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
-                />
-              </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setCancelModalOpen(false)}
+                className="px-4 py-2.5 rounded-2xl bg-slate-100 dark:bg-[#123842] text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer transition-colors"
+              >
+                تراجع
+              </button>
+              <button
+                type="button"
+                disabled={cancelling}
+                onClick={handleConfirmCancel}
+                className="px-4 py-2.5 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer disabled:opacity-60 inline-flex items-center gap-1.5"
+              >
+                {cancelling && <Loader2 className="w-4 h-4 animate-spin" />}
+                {cancelling ? 'جاري الإلغاء...' : 'تأكيد الإلغاء'}
+              </button>
             </div>
           </div>
-
-          <div className="pt-2 flex justify-end">
-            <button
-              type="submit"
-              className="px-6 py-2.5 rounded-xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-xs shadow-md transition-colors cursor-pointer"
-            >
-              حفظ التعديلات
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* TAB 5: PRESCRIPTIONS */}
-      {activeTab === 'prescriptions' && user && (
-        <PrescriptionsPanel onCountChange={setPrescriptionCount} />
-      )}
-
-      {/* Cancel Confirmation Modal */}
-      <Modal
-        isOpen={cancelModalOpen}
-        onClose={() => setCancelModalOpen(false)}
-        title="تأكيد إلغاء موعد الكشف"
-        maxWidth="sm"
-      >
-        <div className="space-y-4 text-right" dir="rtl">
-          <p className="text-xs text-slate-600 dark:text-slate-300">
-            هل أنت متأكد من رغبتك في إلغاء حجز الموعد رقم{' '}
-            <strong className="font-mono text-[#E05A47]">{targetApt?.bookingNumber}</strong> بتاريخ{' '}
-            {targetApt && formatArabicDate(targetApt.appointmentDate)}؟
-          </p>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-              سبب الإلغاء (اختياري)
-            </label>
-            <input
-              type="text"
-              placeholder="مثال: تغيير الموعد، ظرف طارئ..."
-              value={cancelReason}
-              onChange={e => setCancelReason(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
-            />
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={() => setCancelModalOpen(false)}
-              className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-[#123842] text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer"
-            >
-              تراجع
-            </button>
-            <button
-              type="button"
-              disabled={cancelling}
-              onClick={handleConfirmCancel}
-              className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer"
-            >
-              {cancelling ? 'جاري الإلغاء...' : 'تأكيد الإلغاء'}
-            </button>
-          </div>
-        </div>
-      </Modal>
-    </div>
+        </Modal>
+      </div>
     </ToastProvider>
   );
 };
 
 // ----------------------------------------------------
+// Quick action tile
+// ----------------------------------------------------
+const ACCENTS: Record<string, string> = {
+  teal: 'bg-[#0E3847] dark:bg-teal-700 text-white',
+  coral: 'bg-[#E05A47] text-white',
+  blue: 'bg-blue-500 text-white',
+  slate: 'bg-slate-500 text-white',
+};
+
+function QuickAction({
+  icon: Icon,
+  label,
+  hint,
+  active,
+  onClick,
+  accent,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  hint: string;
+  active: boolean;
+  onClick: () => void;
+  accent: 'teal' | 'coral' | 'blue' | 'slate';
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`group relative flex flex-col gap-3 rounded-3xl p-4 text-right border transition-all duration-200 active:scale-[0.98] cursor-pointer bg-white dark:bg-[#10333C] ${
+        active
+          ? 'border-[#E05A47] ring-2 ring-[#E05A47]/20 shadow-md'
+          : 'border-slate-200/80 dark:border-[#17424C] shadow-2xs hover:border-[#E05A47]/40'
+      }`}
+    >
+      <span className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${ACCENTS[accent]}`}>
+        <Icon className="w-5 h-5" />
+      </span>
+      <div className="min-w-0">
+        <div className="text-sm font-bold text-slate-900 dark:text-white leading-tight">{label}</div>
+        <div className="text-[11px] text-slate-400 dark:text-slate-400 truncate">{hint}</div>
+      </div>
+      {active && (
+        <span className="absolute top-3 left-3 w-2 h-2 rounded-full bg-[#E05A47]" aria-hidden />
+      )}
+    </button>
+  );
+}
+
+// ----------------------------------------------------
+// Appointment card — compact, scannable, mobile-friendly
+// ----------------------------------------------------
+function AppointmentCard({ apt, onCancel }: { apt: Appointment; onCancel: () => void }) {
+  const parts = getDateParts(apt.appointmentDate);
+  return (
+    <div className="surface-card flex gap-3 p-4 rounded-3xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C]">
+      <div className="shrink-0 w-16 rounded-2xl bg-[#0E3847] dark:bg-[#123842] text-white flex flex-col items-center justify-center py-2.5">
+        <span className="text-lg font-extrabold leading-none">{parts.day}</span>
+        <span className="text-[10px] text-slate-300 mt-0.5">{parts.month}</span>
+      </div>
+
+      <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#153E48] text-slate-600 dark:text-slate-200">
+            {apt.bookingNumber}
+          </span>
+          <StatusBadge status={apt.status} size="sm" />
+        </div>
+
+        <h3 className="mt-2 text-sm font-bold text-slate-900 dark:text-white truncate">
+          {apt.serviceName || 'كشف عظام واستشارة'}
+        </h3>
+
+        <div className="mt-2 space-y-1.5 text-xs text-slate-500 dark:text-slate-300">
+          <div className="flex items-center gap-1.5">
+            <MapPin className="w-3.5 h-3.5 text-[#0E3847] dark:text-teal-300 shrink-0" />
+            <span className="truncate">{apt.branchName}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-[#E05A47] shrink-0" />
+            <span className="font-bold text-[#E05A47]">{formatArabicTime(apt.appointmentTime)}</span>
+            <span className="text-slate-400">· {parts.weekday}</span>
+          </div>
+        </div>
+
+        <div className="mt-3 pt-3 border-t border-slate-100 dark:border-[#17424C] flex items-center justify-between gap-2">
+          <CalendarExportButton appointment={apt} />
+          {apt.status !== 'cancelled' && apt.status !== 'completed' && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="text-xs font-bold text-rose-600 dark:text-rose-400 hover:text-rose-700 hover:underline cursor-pointer"
+            >
+              إلغاء الموعد
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------
 // Prescriptions panel — Digital Prescription Storage (patient side)
 // ----------------------------------------------------
-function PrescriptionsPanel({ onCountChange }: { onCountChange: (n: number) => void }) {
+function PrescriptionsPanel({
+  onCountChange,
+}: {
+  onCountChange: (n: number) => void;
+}) {
   const { user } = useAuth();
   const toast = useToast();
   const [list, setList] = useState<Prescription[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -651,18 +822,21 @@ function PrescriptionsPanel({ onCountChange }: { onCountChange: (n: number) => v
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
+    setError(null);
     try {
       const r = await api.getPatientPrescriptions();
       if (r.success) {
         setList(r.data || []);
         onCountChange(r.data?.length || 0);
+      } else {
+        setError('تعذر تحميل الروشتات.');
       }
     } catch (e: any) {
-      toast.push({ kind: 'error', title: 'فشل تحميل الروشتات', description: e.message });
+      setError(e.message || 'فشل تحميل الروشتات.');
     } finally {
       setLoading(false);
     }
-  }, [user, onCountChange, toast]);
+  }, [user, onCountChange]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -739,10 +913,10 @@ function PrescriptionsPanel({ onCountChange }: { onCountChange: (n: number) => v
   return (
     <div className="space-y-5">
       {/* Upload card */}
-      <div className="p-5 sm:p-6 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs space-y-4">
-        <div className="flex items-center gap-2">
-          <span className="w-9 h-9 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white flex items-center justify-center">
-            <UploadCloud className="w-4 h-4" />
+      <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs space-y-4">
+        <div className="flex items-center gap-3">
+          <span className="w-11 h-11 rounded-2xl bg-[#0E3847] dark:bg-teal-700 text-white flex items-center justify-center shrink-0">
+            <UploadCloud className="w-5 h-5" />
           </span>
           <div>
             <h2 className="text-sm font-bold text-[#0E3847] dark:text-white">إضافة روشتة جديدة</h2>
@@ -776,7 +950,7 @@ function PrescriptionsPanel({ onCountChange }: { onCountChange: (n: number) => v
 
           <div className="flex-1 space-y-3">
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                 ملاحظات على الروشتة (اختياري)
               </label>
               <textarea
@@ -784,7 +958,7 @@ function PrescriptionsPanel({ onCountChange }: { onCountChange: (n: number) => v
                 onChange={e => setNote(e.target.value)}
                 rows={3}
                 placeholder="مثال: نوع العلاج، سبب الروشتة، اسم الطبيب..."
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47] resize-none"
+                className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47] resize-none"
               />
             </div>
 
@@ -793,7 +967,7 @@ function PrescriptionsPanel({ onCountChange }: { onCountChange: (n: number) => v
                 type="button"
                 onClick={handleUpload}
                 disabled={uploading}
-                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-xs shadow-md transition-colors cursor-pointer disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 px-5 py-3 rounded-2xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-xs shadow-md transition-colors cursor-pointer disabled:opacity-60 active:scale-[0.98]"
               >
                 {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
                 {uploading ? 'جاري الرفع...' : 'حفظ الروشتة'}
@@ -806,6 +980,20 @@ function PrescriptionsPanel({ onCountChange }: { onCountChange: (n: number) => v
       {/* List */}
       {loading ? (
         <LoadingSpinner message="جاري تحميل روشتاتك..." />
+      ) : error ? (
+        <div className="p-5 rounded-3xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs text-center space-y-3">
+          <div className="w-12 h-12 mx-auto rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-300">{error}</p>
+          <button
+            type="button"
+            onClick={load}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] transition-colors cursor-pointer"
+          >
+            <RefreshCw className="w-4 h-4" /> إعادة المحاولة
+          </button>
+        </div>
       ) : list.length === 0 ? (
         <EmptyState
           icon={ImageIcon}
@@ -817,7 +1005,7 @@ function PrescriptionsPanel({ onCountChange }: { onCountChange: (n: number) => v
           {list.map(rx => (
             <div
               key={rx.id}
-              className="rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs overflow-hidden flex flex-col"
+              className="rounded-3xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs overflow-hidden flex flex-col"
             >
               <button
                 type="button"
@@ -849,14 +1037,14 @@ function PrescriptionsPanel({ onCountChange }: { onCountChange: (n: number) => v
                   <button
                     type="button"
                     onClick={() => setViewRx(rx)}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] transition-colors cursor-pointer"
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-2xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] transition-colors cursor-pointer active:scale-[0.98]"
                   >
                     <Eye className="w-3.5 h-3.5" /> عرض
                   </button>
                   <button
                     type="button"
                     onClick={() => setDeleteRx(rx)}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-xs font-bold hover:bg-rose-100 dark:hover:bg-rose-950/70 transition-colors cursor-pointer"
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-xs font-bold hover:bg-rose-100 dark:hover:bg-rose-950/70 transition-colors cursor-pointer active:scale-[0.98]"
                   >
                     <Trash2 className="w-3.5 h-3.5" /> حذف
                   </button>
@@ -871,7 +1059,7 @@ function PrescriptionsPanel({ onCountChange }: { onCountChange: (n: number) => v
       <Modal isOpen={!!viewRx} onClose={() => setViewRx(null)} title="عرض الروشتة" maxWidth="2xl">
         {viewRx && (
           <div className="space-y-4 text-right" dir="rtl">
-            <div className="max-h-[60vh] overflow-auto rounded-xl bg-slate-100 dark:bg-[#0E2C33] flex items-center justify-center">
+            <div className="max-h-[60vh] overflow-auto rounded-2xl bg-slate-100 dark:bg-[#0E2C33] flex items-center justify-center">
               <img src={viewRx.imageUrl} alt="روشتة" className="max-w-full max-h-[60vh] object-contain" />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
@@ -885,7 +1073,7 @@ function PrescriptionsPanel({ onCountChange }: { onCountChange: (n: number) => v
               </div>
             </div>
             {viewRx.note && (
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap">
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap">
                 <strong className="text-slate-500 dark:text-slate-400 ml-1">الملاحظات:</strong>
                 {viewRx.note}
               </div>
@@ -904,7 +1092,7 @@ function PrescriptionsPanel({ onCountChange }: { onCountChange: (n: number) => v
             <button
               type="button"
               onClick={() => setDeleteRx(null)}
-              className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-[#123842] text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer"
+              className="px-4 py-2.5 rounded-2xl bg-slate-100 dark:bg-[#123842] text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer transition-colors"
             >
               تراجع
             </button>
@@ -912,8 +1100,9 @@ function PrescriptionsPanel({ onCountChange }: { onCountChange: (n: number) => v
               type="button"
               onClick={confirmDelete}
               disabled={deleting}
-              className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer disabled:opacity-60"
+              className="px-4 py-2.5 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer disabled:opacity-60 inline-flex items-center gap-1.5"
             >
+              {deleting && <Loader2 className="w-4 h-4 animate-spin" />}
               {deleting ? 'جاري الحذف...' : 'تأكيد الحذف'}
             </button>
           </div>
