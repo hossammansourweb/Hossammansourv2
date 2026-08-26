@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Branch, MedicalService, Appointment, AvailableSlot } from '../types/index.ts';
 import { api } from '../services/api.ts';
 import { useAuth } from '../context/AuthContext.tsx';
-import { formatArabicDate, formatArabicTime } from '../utils/date.ts';
+import { formatArabicDate, formatArabicTime, formatDateDDMMYYYY } from '../utils/date.ts';
 import { CalendarExportButton } from '../components/common/CalendarExportButton.tsx';
 import { LoadingSpinner } from '../components/common/LoadingSpinner.tsx';
 import {
@@ -59,6 +59,12 @@ export const BookingView: React.FC<BookingViewProps> = ({
   const [availableSlots, setAvailableSlots] = useState<AvailableSlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotError, setSlotError] = useState<string | null>(null);
+
+  // Available dates for the selected branch+service (YYYY-MM-DD set).
+  // Only dates that have at least one bookable slot are kept.
+  const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
+  const [datesLoading, setDatesLoading] = useState(false);
+  const [datesLoaded, setDatesLoaded] = useState(false);
 
   // Submission state
   const [submitting, setSubmitting] = useState(false);
@@ -126,6 +132,58 @@ export const BookingView: React.FC<BookingViewProps> = ({
     loadSlots();
   }, [selectedBranchId, selectedServiceId, selectedDate]);
 
+  // Recalculate available dates whenever the selected branch or service changes.
+  // Dates are filtered server-side by the same source of truth as the slot list
+  // (working hours, holidays, existing bookings, exceptions).
+  useEffect(() => {
+    if (!selectedBranchId) {
+      setAvailableDates(new Set());
+      setDatesLoaded(false);
+      return;
+    }
+
+    let cancelled = false;
+    async function loadAvailableDates() {
+      setDatesLoading(true);
+      setDatesLoaded(false);
+      try {
+        const res = await api.getAvailableDates(
+          selectedBranchId,
+          selectedServiceId || '',
+          14
+        );
+        if (cancelled) return;
+        if (res.success && Array.isArray(res.data)) {
+          setAvailableDates(new Set(res.data));
+        } else {
+          setAvailableDates(new Set());
+        }
+      } catch (err) {
+        if (!cancelled) setAvailableDates(new Set());
+      } finally {
+        if (!cancelled) {
+          setDatesLoading(false);
+          setDatesLoaded(true);
+        }
+      }
+    }
+    loadAvailableDates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBranchId, selectedServiceId]);
+
+  // If the currently selected date is no longer available for the new branch/
+  // service, clear the selection (and the time slot with it).
+  useEffect(() => {
+    if (!datesLoaded) return;
+    if (selectedDate && !availableDates.has(selectedDate)) {
+      setSelectedDate('');
+      setSelectedSlot(null);
+    }
+  }, [availableDates, datesLoaded, selectedDate]);
+
   const handleFinalBooking = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedBranchId || !selectedServiceId || !selectedDate || !selectedSlot) {
@@ -188,9 +246,19 @@ export const BookingView: React.FC<BookingViewProps> = ({
       dayName,
       dayNumber: d.getDate(),
       month: d.getMonth() + 1,
+      monthPadded: m,
+      year: y,
+      dayPadded: day,
       dayOfWeek: d.getDay(),
     };
   });
+
+  // Only show dates that have at least one bookable slot for the selected
+  // branch+service. This is the source of truth — fully-booked days, holidays,
+  // off-days, and days outside working hours are all hidden.
+  const visibleDays = datesLoaded
+    ? upcomingDays.filter(d => availableDates.has(d.dateStr))
+    : [];
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 text-right" dir="rtl">
@@ -329,8 +397,9 @@ export const BookingView: React.FC<BookingViewProps> = ({
               disabled={!selectedBranchId || !selectedServiceId}
               onClick={() => {
                 setStep(2);
-                if (!selectedDate && upcomingDays.length > 0) {
-                  setSelectedDate(upcomingDays[0].dateStr);
+                if (!selectedDate) {
+                  const firstAvailable = visibleDays[0]?.dateStr || upcomingDays[0]?.dateStr;
+                  if (firstAvailable) setSelectedDate(firstAvailable);
                 }
               }}
               className="px-7 py-3 rounded-xl bg-[#E05A47] hover:bg-[#cf4f3d] disabled:opacity-50 text-white font-bold text-xs sm:text-sm shadow-md transition-colors flex items-center gap-2 cursor-pointer"
@@ -370,27 +439,42 @@ export const BookingView: React.FC<BookingViewProps> = ({
               <span>اختر يوم الكشف</span>
             </h2>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
-              {upcomingDays.map(item => {
-                const isSelected = selectedDate === item.dateStr;
-                return (
-                  <button
-                    key={item.dateStr}
-                    type="button"
-                    onClick={() => setSelectedDate(item.dateStr)}
-                    className={`p-2.5 rounded-xl text-center border-2 transition-all cursor-pointer ${
-                      isSelected
-                        ? 'border-[#E05A47] bg-[#E05A47] text-white shadow-xs'
-                        : 'border-slate-200 dark:border-[#1F4E5A] bg-slate-50 dark:bg-[#123842] hover:border-slate-300 dark:hover:border-[#2a6878] text-slate-700 dark:text-slate-200'
-                    }`}
-                  >
-                    <span className="block text-[11px] font-semibold">{item.dayName}</span>
-                    <span className="block text-base font-bold my-0.5">{item.dayNumber}</span>
-                    <span className="block text-[10px] opacity-80">{item.month} / {item.dateStr.split('-')[0]}</span>
-                  </button>
-                );
-              })}
-            </div>
+            {datesLoading ? (
+              <LoadingSpinner message="جاري فحص الأيام المتاحة لهذا الفرع..." size="sm" />
+            ) : !datesLoaded ? (
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-500 dark:text-slate-300">
+                جاري التحقق من المواعيد المتاحة...
+              </div>
+            ) : visibleDays.length === 0 ? (
+              <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-xs border border-amber-200 dark:border-amber-800 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>لا توجد مواعيد متاحة حالياً لهذا الفرع</span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
+                {visibleDays.map(item => {
+                  const isSelected = selectedDate === item.dateStr;
+                  return (
+                    <button
+                      key={item.dateStr}
+                      type="button"
+                      onClick={() => setSelectedDate(item.dateStr)}
+                      className={`p-2.5 rounded-xl text-center border-2 transition-all cursor-pointer ${
+                        isSelected
+                          ? 'border-[#E05A47] bg-[#E05A47] text-white shadow-xs'
+                          : 'border-slate-200 dark:border-[#1F4E5A] bg-slate-50 dark:bg-[#123842] hover:border-slate-300 dark:hover:border-[#2a6878] text-slate-700 dark:text-slate-200'
+                      }`}
+                    >
+                      <span className="block text-[11px] font-semibold">{item.dayName}</span>
+                      <span className="block text-base font-bold my-0.5">{item.dayNumber}</span>
+                      <span className="block text-[10px] opacity-80 tabular-nums" dir="ltr">
+                        {formatDateDDMMYYYY(item.dateStr)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Available Slots */}

@@ -92,3 +92,15 @@ export function getTodayDateString(): string {
   const d = String(now.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+/**
+ * Display-only: converts a YYYY-MM-DD string to DD/MM/YYYY.
+ * Parses as a local-time date (split on `-`, no `new Date(string)`) so we never
+ * introduce a timezone shift around midnight.
+ */
+export function formatDateDDMMYYYY(dateStr: string): string {
+  if (!dateStr) return '';
+  const [y, m, d] = dateStr.split('-');
+  if (!y || !m || !d) return dateStr;
+  return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+}

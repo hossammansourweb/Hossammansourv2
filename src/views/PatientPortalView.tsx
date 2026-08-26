@@ -23,13 +23,14 @@ import {
 interface PatientPortalViewProps {
   onNavigate: (view: string, params?: any) => void;
   onOpenAuth: (tab?: 'login' | 'register') => void;
+  initialTab?: 'appointments' | 'records' | 'profile' | 'lookup';
 }
 
-export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate, onOpenAuth }) => {
+export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate, onOpenAuth, initialTab }) => {
   const { user } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'appointments' | 'records' | 'profile' | 'lookup'>(
-    user ? 'appointments' : 'lookup'
+    initialTab || (user ? 'appointments' : 'lookup')
   );
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);

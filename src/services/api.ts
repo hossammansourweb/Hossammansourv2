@@ -196,6 +196,13 @@ export const api = {
       `/public/available-slots?branchId=${branchId}&serviceId=${serviceId}&date=${date}`
     ),
 
+  // Returns YYYY-MM-DD strings for the next `daysAhead` days that have at
+  // least one bookable slot at the given branch+service.
+  getAvailableDates: (branchId: string, serviceId: string, daysAhead: number = 14) =>
+    request<{ success: boolean; data: string[] }>(
+      `/public/available-dates?branchId=${branchId}&serviceId=${serviceId}&daysAhead=${daysAhead}`
+    ),
+
   bookAppointment: (payload: {
     patientName: string;
     patientPhone: string;

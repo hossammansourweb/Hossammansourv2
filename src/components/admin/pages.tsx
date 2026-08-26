@@ -470,6 +470,13 @@ export function Patients() {
   const openHistory = async (p: any) => {
     setHistoryPatient(p);
     setHistory([]);
+    if (!p?.phone) {
+      // Guests without a phone have no linked history; skip the API call
+      // (otherwise it hits /admin/patients//history and 404s).
+      setHistoryLoading(false);
+      toast.push({ kind: 'info', title: 'لا يوجد رقم هاتف', description: 'هذا المريض غير مرتبط برقم هاتف لعرض سجله.' });
+      return;
+    }
     setHistoryLoading(true);
     try {
       const r = await api.getPatientHistory(p.phone);

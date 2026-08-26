@@ -13,6 +13,8 @@ import {
   Phone,
   Mail,
   CheckCircle2,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 interface AuthModalProps {
@@ -44,6 +46,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [regPhone, setRegPhone] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
+  const [showRegPassword, setShowRegPassword] = useState(false);
 
   // Sync tab when initialTab changes or modal opens
   useEffect(() => {
@@ -196,9 +199,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       maxWidth="md"
     >
       <div className="text-right space-y-5 py-2" dir="rtl">
-        {/* Header (Matches Screenshots 3 & 4) */}
-        <div>
-          <div className="inline-flex items-center gap-2 text-xs font-bold text-[#E05A47] mb-1">
+        {/* Header (premium redesign) */}
+        <div className="text-center">
+          <div className="mx-auto mb-3 w-14 h-14 rounded-2xl bg-gradient-to-br from-[#0E3847] to-[#136579] dark:from-[#0c2c33] dark:to-[#0E3847] flex items-center justify-center shadow-lg shadow-teal-900/20">
+            <User className="w-7 h-7 text-white" />
+          </div>
+          <div className="inline-flex items-center gap-2 text-[11px] font-bold text-[#E05A47] mb-1">
             <span className="w-2 h-2 rounded-full bg-[#E05A47]" />
             <span>{tab === 'login' ? 'حساب المريض' : 'حساب جديد'}</span>
           </div>
@@ -236,28 +242,34 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                 البريد الإلكتروني أو رقم الهاتف
               </label>
-              <input
-                type="text"
-                required
-                placeholder="name@example.com أو 01100171817"
-                value={identifier}
-                onChange={e => setIdentifier(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
-              />
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  required
+                  placeholder="name@example.com أو 01100171817"
+                  value={identifier}
+                  onChange={e => setIdentifier(e.target.value)}
+                  className="w-full pr-10 pl-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
+                />
+              </div>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                 كلمة المرور
               </label>
-              <input
-                type="password"
-                required
-                placeholder="••••••••"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
-              />
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className="w-full pr-10 pl-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
+                />
+              </div>
             </div>
 
             <button
@@ -320,55 +332,76 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                 الاسم بالكامل
               </label>
-              <input
-                type="text"
-                required
-                placeholder="الاسم كما سيظهر في الملف الطبي"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
-              />
+              <div className="relative">
+                <User className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  required
+                  placeholder="الاسم كما سيظهر في الملف الطبي"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  className="w-full pr-10 pl-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
+                />
+              </div>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                 رقم الهاتف (للتواصل وتأكيد الحجز)
               </label>
-              <input
-                type="tel"
-                required
-                placeholder="01X XXXX XXXX"
-                value={regPhone}
-                onChange={e => setRegPhone(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
-              />
+              <div className="relative">
+                <Phone className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="tel"
+                  required
+                  placeholder="01X XXXX XXXX"
+                  value={regPhone}
+                  onChange={e => setRegPhone(e.target.value)}
+                  className="w-full pr-10 pl-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
+                />
+              </div>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                 البريد الإلكتروني (اختياري)
               </label>
-              <input
-                type="email"
-                placeholder="name@example.com"
-                value={regEmail}
-                onChange={e => setRegEmail(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
-              />
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="email"
+                  placeholder="name@example.com"
+                  value={regEmail}
+                  onChange={e => setRegEmail(e.target.value)}
+                  className="w-full pr-10 pl-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
+                />
+              </div>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                 كلمة المرور
               </label>
-              <input
-                type="password"
-                required
-                placeholder="6 أحرف على الأقل"
-                value={regPassword}
-                onChange={e => setRegPassword(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
-              />
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type={showRegPassword ? 'text' : 'password'}
+                  required
+                  placeholder="6 أحرف على الأقل"
+                  value={regPassword}
+                  onChange={e => setRegPassword(e.target.value)}
+                  className="w-full pr-10 pl-10 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-[#E05A47]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowRegPassword(v => !v)}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                  aria-label={showRegPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                  tabIndex={-1}
+                >
+                  {showRegPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <button

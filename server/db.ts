@@ -481,6 +481,43 @@ class ClinicDatabase {
     return slots;
   }
 
+  /**
+   * Returns the YYYY-MM-DD strings (in the server's local timezone) for the next
+   * `daysAhead` days that have at least one bookable appointment slot at the given
+   * branch. Reuses calculateAvailableSlots so all working-hours, holiday,
+   * exception, and existing-booking rules stay in one place.
+   */
+  public async getAvailableDates(
+    branchId: string,
+    serviceId: string,
+    daysAhead: number = 14
+  ): Promise<string[]> {
+    if (!branchId) return [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const available: string[] = [];
+    for (let i = 0; i < daysAhead; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() + i);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${day}`;
+
+      try {
+        const slots = await this.calculateAvailableSlots(branchId, serviceId || '', dateStr);
+        if (slots.some(s => s.isAvailable)) {
+          available.push(dateStr);
+        }
+      } catch (e) {
+        // skip day on error and keep the others
+        continue;
+      }
+    }
+    return available;
+  }
+
   // ----------------- APPOINTMENTS -----------------
   public async getAppointments(filters?: {
     patientId?: string;
@@ -615,7 +652,7 @@ class ClinicDatabase {
       updatedAt: nowIso,
     };
 
-    await firestore().collection(COL.appointments).doc(id).set(newAppointment);
+    await firestore().collection(COL.appointments).doc(id).set(stripUndefined(newAppointment) as any);
 
     await this.createNotification({
       appointmentId: newAppointment.id,

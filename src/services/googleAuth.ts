@@ -55,6 +55,9 @@ export function getSignInMethodsForEmail(email: string) {
 }
 
 // ---------- One Tap ----------
+let gisInitialized = false;
+let gisCredentialHandler: ((credential: string) => void) | null = null;
+
 export async function initOneTap(handlers: {
   onCredential: (credential: string) => void;
   onError?: (reason: string) => void;
@@ -70,13 +73,20 @@ export async function initOneTap(handlers: {
     handlers.onError?.('gis-unavailable');
     return false;
   }
-  g.accounts.id.initialize({
-    client_id: GOOGLE_CLIENT_ID,
-    callback: (resp: any) => {
-      if (resp?.credential) handlers.onCredential(resp.credential);
-      else handlers.onError?.('no-credential');
-    },
-  });
+  // Keep the latest handler so re-initializing isn't required (avoids the
+  // "google.accounts.id.initialize() is called multiple times" warning).
+  gisCredentialHandler = handlers.onCredential;
+  if (!gisInitialized) {
+    g.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      use_fedcm_for_prompt: true,
+      callback: (resp: any) => {
+        if (resp?.credential) gisCredentialHandler?.(resp.credential);
+        else handlers.onError?.('no-credential');
+      },
+    });
+    gisInitialized = true;
+  }
   return true;
 }
 
@@ -86,15 +96,9 @@ export function promptOneTap(onNotShown?: () => void) {
     onNotShown?.();
     return;
   }
-  g.accounts.id.prompt((notification: any) => {
-    if (
-      notification.isNotDisplayed?.() ||
-      notification.isSkippedMoment?.() ||
-      notification.isDismissedMoment?.()
-    ) {
-      onNotShown?.();
-    }
-  });
+  // Call prompt() WITHOUT a status/moment callback to stay FedCM-compliant and
+  // avoid the "uses a deprecated One Tap prompt UI status method" warning.
+  g.accounts.id.prompt();
 }
 
 export function cancelOneTap() {

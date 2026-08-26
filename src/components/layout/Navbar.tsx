@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext.tsx';
 import { useTheme } from '../../context/ThemeContext.tsx';
 import logo from '../../assets/images/logo.png';
@@ -19,19 +19,34 @@ import {
   HelpCircle,
   Home,
   MapPin,
+  FileText,
+  ChevronDown,
 } from 'lucide-react';
 
 interface NavbarProps {
   currentView: string;
   onNavigate: (view: string) => void;
+  onNavigatePatient: (tab: 'appointments' | 'records' | 'profile' | 'lookup') => void;
   onOpenAuth: (tab?: 'login' | 'register') => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenAuth }) => {
+export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onNavigatePatient, onOpenAuth }) => {
   const { user, logout, isStaff } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!userDropdownOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [userDropdownOpen]);
 
   const navMenuItems = [
     { id: 'home', label: 'الرئيسية', sublabel: 'نظرة عامة', icon: Home },
@@ -171,15 +186,65 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
               )}
 
               {user && !isStaff && (
-                <button
-                  type="button"
-                  onClick={() => handleLinkClick('patient-portal')}
-                  className="hidden lg:flex w-10 h-10 rounded-full border border-slate-200 dark:border-[#1F4E5A] bg-white dark:bg-[#123842] hover:bg-slate-50 dark:hover:bg-[#184854] text-slate-700 dark:text-slate-200 items-center justify-center shadow-2xs transition-colors cursor-pointer"
-                  aria-label="حسابي"
-                  title="حسابي"
-                >
-                  <User className="w-4.5 h-4.5 text-slate-600 dark:text-slate-300" />
-                </button>
+                <div className="hidden lg:block relative" ref={userMenuRef} dir="rtl">
+                  <button
+                    type="button"
+                    onClick={() => setUserDropdownOpen(o => !o)}
+                    className="flex items-center gap-2 h-10 px-3 rounded-full border border-slate-200 dark:border-[#1F4E5A] bg-white dark:bg-[#123842] hover:bg-slate-50 dark:hover:bg-[#184854] text-slate-700 dark:text-slate-200 shadow-2xs transition-colors cursor-pointer"
+                    aria-label="حسابي"
+                    aria-haspopup="menu"
+                    aria-expanded={userDropdownOpen}
+                  >
+                    <span className="w-7 h-7 rounded-full bg-[#0E3847] dark:bg-teal-700 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                      {(user.name || 'م').trim().charAt(0)}
+                    </span>
+                    <span className="text-xs font-bold max-w-[7rem] truncate">{user.name}</span>
+                    <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${userDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {userDropdownOpen && (
+                    <div
+                      role="menu"
+                      className="absolute left-0 top-[calc(100%+0.5rem)] w-60 z-50 rounded-2xl bg-white dark:bg-[#0E2C33] border border-slate-200 dark:border-[#17424C] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95"
+                    >
+                      <div className="px-4 py-3 border-b border-slate-100 dark:border-[#17424C]">
+                        <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{user.name}</p>
+                        {user.email && (
+                          <p className="text-[11px] text-slate-400 dark:text-slate-300 truncate" dir="ltr">{user.email}</p>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => { setUserDropdownOpen(false); onNavigatePatient('records'); }}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-[#164450] transition-colors cursor-pointer"
+                      >
+                        <FileText className="w-4 h-4 text-teal-600 shrink-0" />
+                        <span className="font-medium">الملف الطبي</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setUserDropdownOpen(false); onNavigatePatient('appointments'); }}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-[#164450] transition-colors cursor-pointer"
+                      >
+                        <Calendar className="w-4 h-4 text-teal-600 shrink-0" />
+                        <span className="font-medium">حجوزاتي</span>
+                      </button>
+
+                      <div className="my-1 h-px bg-slate-100 dark:bg-[#17424C]" />
+
+                      <button
+                        type="button"
+                        onClick={() => { setUserDropdownOpen(false); logout(); }}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-right text-sm text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4 shrink-0" />
+                        <span className="font-medium">تسجيل الخروج</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>

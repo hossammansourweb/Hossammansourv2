@@ -121,6 +121,7 @@ function MainApp() {
   // Auth modal state
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authInitialTab, setAuthInitialTab] = useState<'login' | 'register'>('login');
+  const [patientTab, setPatientTab] = useState<'appointments' | 'records' | 'profile' | 'lookup'>('appointments');
 
   // Sync state from URL on popstate (back/forward, refresh already initialized state)
   useEffect(() => {
@@ -140,8 +141,9 @@ function MainApp() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  const navigate = useCallback((view: string, params?: { branchId?: string; serviceId?: string }) => {
+  const navigate = useCallback((view: string, params?: { branchId?: string; serviceId?: string; patientTab?: string }) => {
     if (params) setBookingParams(params);
+    if (params?.patientTab) setPatientTab(params.patientTab as any);
     const newPath = viewToPath(view, undefined, params);
     if (window.location.pathname + window.location.search !== newPath) {
       window.history.pushState({}, '', newPath);
@@ -178,6 +180,7 @@ function MainApp() {
         <Navbar
           currentView={currentView}
           onNavigate={navigate}
+          onNavigatePatient={(tab) => navigate('patient-portal', { patientTab: tab })}
           onOpenAuth={handleOpenAuth}
         />
       )}
@@ -230,6 +233,7 @@ function MainApp() {
           <PatientPortalView
             onNavigate={navigate}
             onOpenAuth={handleOpenAuth}
+            initialTab={patientTab}
           />
         )}
 

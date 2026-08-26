@@ -29,9 +29,23 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
   try {
     const { firebaseAuth } = await import('./server/firebase.ts');
     const decoded = await firebaseAuth().verifyIdToken(token);
-    const user = await db.findUserById(decoded.uid);
+    let user = await db.findUserById(decoded.uid);
     if (!user) {
-      return res.status(403).json({ success: false, message: 'المستخدم غير موجود بالنظام.' });
+      // Self-heal: a valid Firebase session exists but the Firestore profile
+      // doc is missing (e.g. a previous Google/external login whose sync failed,
+      // or a registration whose profile write didn't persist). Provision a
+      // patient profile from the verified token so the session can be used.
+      const email = decoded.email || undefined;
+      const name =
+        (decoded.name as string) ||
+        (email ? email.split('@')[0] : 'مستخدم جديد');
+      user = await db.createUserWithId(decoded.uid, {
+        name,
+        phone: '',
+        email,
+        password: '',
+        role: 'patient',
+      });
     }
     const { passwordHash: _omit, ...safeUser } = user as any;
     req.user = safeUser as User;
@@ -103,6 +117,20 @@ app.get('/api/public/available-slots', wrap(async (req, res) => {
 
   const slots = await db.calculateAvailableSlots(branchId, serviceId || '', date);
   res.json({ success: true, data: slots });
+}));
+
+// List of YYYY-MM-DD dates (next N days) that have at least one bookable slot
+// for the given branch+service. Reuses the same source of truth as /available-slots.
+app.get('/api/public/available-dates', wrap(async (req, res) => {
+  const { branchId, serviceId, daysAhead } = req.query as { branchId?: string; serviceId?: string; daysAhead?: string };
+
+  if (!branchId) {
+    return res.status(400).json({ success: false, message: 'يرجى تحديد الفرع.' });
+  }
+
+  const days = Math.min(60, Math.max(1, parseInt(daysAhead || '14', 10) || 14));
+  const dates = await db.getAvailableDates(branchId, serviceId || '', days);
+  res.json({ success: true, data: dates });
 }));
 
 // Book an Appointment (Public or Authenticated Patient)
