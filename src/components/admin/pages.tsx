@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Calendar,
   Users as UsersIcon,
@@ -13,6 +13,8 @@ import {
   TrendingUp,
   BadgeCheck,
   UserCog,
+  User as UserIcon,
+  ChevronRight,
   Image as ImageIcon,
 } from 'lucide-react';
 import { api } from '../../services/api.ts';
@@ -1414,6 +1416,7 @@ export function Prescriptions() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [viewRx, setViewRx] = useState<AdminPrescription | null>(null);
 
   const load = useCallback(async () => {
@@ -1431,16 +1434,39 @@ export function Prescriptions() {
 
   useEffect(() => { load(); }, [load]);
 
-  const filtered = data.filter(p => {
+  // Group all prescriptions by patient account.
+  const patients = useMemo(() => {
+    const map = new Map<string, {
+      userId: string; patientName: string; patientEmail?: string; patientPhone: string; rxs: AdminPrescription[];
+    }>();
+    for (const rx of data) {
+      if (!map.has(rx.userId)) {
+        map.set(rx.userId, {
+          userId: rx.userId,
+          patientName: rx.patientName,
+          patientEmail: rx.patientEmail,
+          patientPhone: rx.patientPhone,
+          rxs: [],
+        });
+      }
+      map.get(rx.userId)!.rxs.push(rx);
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => (b.rxs[0]?.createdAt || '').localeCompare(a.rxs[0]?.createdAt || '')
+    );
+  }, [data]);
+
+  const filteredPatients = patients.filter(p => {
     const q = search.trim().toLowerCase();
     if (!q) return true;
     return (
-      (p.patientName || '').toLowerCase().includes(q) ||
-      (p.patientPhone || '').includes(q) ||
-      (p.patientEmail || '').toLowerCase().includes(q) ||
-      (p.createdAt || '').toLowerCase().includes(q)
+      p.patientName.toLowerCase().includes(q) ||
+      p.patientPhone.includes(q) ||
+      (p.patientEmail || '').toLowerCase().includes(q)
     );
   });
+
+  const selected = patients.find(p => p.userId === selectedUserId) || null;
 
   return (
     <div>
@@ -1448,23 +1474,74 @@ export function Prescriptions() {
         <SearchBar
           value={search}
           onChange={setSearch}
-          placeholder="ابحث باسم المريض، الهاتف، البريد، أو التاريخ..."
+          placeholder={selected ? 'ابحث بروشتات هذا المريض...' : 'ابحث باسم المريض، الهاتف، أو البريد الإلكتروني...'}
         />
       </div>
 
+      {/* Patient drill-down header */}
+      {selected && (
+        <div className="flex items-center justify-between gap-3 mb-4 p-4 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="w-11 h-11 rounded-2xl bg-[#0E3847] dark:bg-teal-700 text-white flex items-center justify-center text-base font-extrabold shrink-0">
+              {(selected.patientName || 'م').trim().charAt(0)}
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{selected.patientName}</p>
+              <p className="text-[11px] text-slate-400" dir="ltr">{selected.patientPhone || '—'}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedUserId(null)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-[#123842] text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-200 dark:hover:bg-[#164450] transition-colors cursor-pointer shrink-0"
+          >
+            <ChevronRight className="w-4 h-4" />
+            العودة للمرضى
+          </button>
+        </div>
+      )}
+
       {loading ? (
-        <LoadingState label="جارِ تحميل روشتات المرضى..." />
+        <LoadingState label="جارِ تحميل حسابات المرضى..." />
       ) : error ? (
         <ErrorState message={error} onRetry={load} />
-      ) : filtered.length === 0 ? (
+      ) : filteredPatients.length === 0 ? (
         <EmptyState
-          icon={ImageIcon}
-          title={data.length === 0 ? 'لا توجد روشتات محفوظة' : 'لا توجد نتائج'}
-          description={data.length === 0 ? 'لم يتم حفظ أي روشتات من المرضى بعد.' : 'جرّب بحثاً مختلفاً.'}
+          icon={UsersIcon}
+          title={patients.length === 0 ? 'لا توجد روشتات محفوظة' : 'لا توجد نتائج'}
+          description={patients.length === 0 ? 'لم يتم حفظ أي روشتات من المرضى بعد.' : 'جرّب بحثاً مختلفاً.'}
         />
+      ) : !selected ? (
+        /* Patient accounts list */
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredPatients.map(p => (
+            <button
+              key={p.userId}
+              type="button"
+              onClick={() => setSelectedUserId(p.userId)}
+              className="text-right rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs p-4 flex items-center gap-3.5 hover:border-[#E05A47] hover:shadow-md transition-all cursor-pointer"
+            >
+              <span className="w-12 h-12 rounded-2xl bg-[#0E3847] dark:bg-teal-700 text-white flex items-center justify-center text-lg font-extrabold shrink-0">
+                {(p.patientName || 'م').trim().charAt(0)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{p.patientName}</p>
+                <p className="text-[11px] text-slate-400 truncate" dir="ltr">{p.patientPhone || '—'}</p>
+                {p.patientEmail && (
+                  <p className="text-[11px] text-slate-400 truncate" dir="ltr">{p.patientEmail}</p>
+                )}
+              </div>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#E05A47]/10 dark:bg-[#E05A47]/20 text-[#E05A47] dark:text-[#f27463] text-[11px] font-bold shrink-0">
+                <ImageIcon className="w-3.5 h-3.5" />
+                {p.rxs.length}
+              </span>
+            </button>
+          ))}
+        </div>
       ) : (
+        /* Selected patient's prescriptions */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filtered.map(rx => (
+          {selected.rxs.map(rx => (
             <div
               key={rx.id}
               className="rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs overflow-hidden flex flex-col"
@@ -1472,7 +1549,7 @@ export function Prescriptions() {
               <button
                 type="button"
                 onClick={() => setViewRx(rx)}
-                className="block w-full h-40 bg-slate-100 dark:bg-[#0E2C33] overflow-hidden cursor-pointer"
+                className="block w-full h-44 bg-slate-100 dark:bg-[#0E2C33] overflow-hidden cursor-pointer"
                 aria-label="عرض الروشتة"
               >
                 <img
@@ -1484,19 +1561,10 @@ export function Prescriptions() {
               </button>
 
               <div className="p-3.5 space-y-2.5 flex-1 flex flex-col">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-bold text-slate-900 dark:text-white truncate">{rx.patientName}</span>
-                  <span className="font-mono text-[11px] text-teal-600 dark:text-teal-400 shrink-0" dir="ltr">{rx.patientPhone || '—'}</span>
-                </div>
-
                 <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-300">
                   <ClockIcon className="w-3.5 h-3.5 text-[#E05A47] shrink-0" />
                   <span className="font-bold text-[#E05A47]">{formatPrescriptionDateTime(rx.createdAt)}</span>
                 </div>
-
-                {rx.patientEmail && (
-                  <p className="text-[11px] text-slate-400 truncate" dir="ltr">{rx.patientEmail}</p>
-                )}
 
                 {rx.note && (
                   <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2 bg-slate-50 dark:bg-[#123842] rounded-xl p-2">
