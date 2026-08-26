@@ -1,37 +1,45 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
-import { Appointment } from '../types/index.ts';
+import { Appointment, Prescription } from '../types/index.ts';
 import { api } from '../services/api.ts';
-import { formatArabicDate, formatArabicTime } from '../utils/date.ts';
+import { formatArabicDate, formatArabicTime, formatPrescriptionDateTime } from '../utils/date.ts';
 import { StatusBadge } from '../components/common/StatusBadge.tsx';
 import { CalendarExportButton } from '../components/common/CalendarExportButton.tsx';
 import { LoadingSpinner } from '../components/common/LoadingSpinner.tsx';
 import { EmptyState } from '../components/common/EmptyState.tsx';
 import { Modal } from '../components/common/Modal.tsx';
+import { ToastProvider, useToast } from '../components/admin/ui.tsx';
 import {
   Calendar,
   Clock,
   MapPin,
   FileText,
+  Image as ImageIcon,
   User,
   CheckCircle2,
   AlertCircle,
   PlusCircle,
   Search,
+  Trash2,
+  Eye,
+  Loader2,
+  UploadCloud,
 } from 'lucide-react';
 
 interface PatientPortalViewProps {
   onNavigate: (view: string, params?: any) => void;
   onOpenAuth: (tab?: 'login' | 'register') => void;
-  initialTab?: 'appointments' | 'records' | 'profile' | 'lookup';
+  initialTab?: 'appointments' | 'records' | 'profile' | 'lookup' | 'prescriptions';
 }
 
 export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate, onOpenAuth, initialTab }) => {
   const { user } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'appointments' | 'records' | 'profile' | 'lookup'>(
+  const [activeTab, setActiveTab] = useState<'appointments' | 'records' | 'profile' | 'lookup' | 'prescriptions'>(
     initialTab || (user ? 'appointments' : 'lookup')
   );
+
+  const [prescriptionCount, setPrescriptionCount] = useState(0);
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(false);
@@ -86,6 +94,12 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
     }
   }, [user]);
 
+  // Keep the active tab in sync when navigation requests a specific tab
+  // (e.g. clicking "روشتاتي" in the navbar while already on the portal).
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab);
+  }, [initialTab]);
+
   const handleLookupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLookupError(null);
@@ -136,6 +150,7 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
   };
 
   return (
+    <ToastProvider>
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8 text-right" dir="rtl">
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 sm:p-7 rounded-2xl bg-[#0E3847] text-white shadow-md">
@@ -216,6 +231,18 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
             >
               <User className="w-3.5 h-3.5" />
               <span>بياناتي الشخصية</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('prescriptions')}
+              className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                activeTab === 'prescriptions'
+                  ? 'bg-white dark:bg-[#123842] text-[#0E3847] dark:text-white shadow-2xs'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
+              }`}
+            >
+              <ImageIcon className="w-3.5 h-3.5" />
+              <span>روشتاتي ({prescriptionCount})</span>
             </button>
           </>
         ) : (
@@ -545,6 +572,11 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
         </form>
       )}
 
+      {/* TAB 5: PRESCRIPTIONS */}
+      {activeTab === 'prescriptions' && user && (
+        <PrescriptionsPanel onCountChange={setPrescriptionCount} />
+      )}
+
       {/* Cancel Confirmation Modal */}
       <Modal
         isOpen={cancelModalOpen}
@@ -592,5 +624,301 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
         </div>
       </Modal>
     </div>
+    </ToastProvider>
   );
 };
+
+// ----------------------------------------------------
+// Prescriptions panel — Digital Prescription Storage (patient side)
+// ----------------------------------------------------
+function PrescriptionsPanel({ onCountChange }: { onCountChange: (n: number) => void }) {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [list, setList] = useState<Prescription[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const [uploading, setUploading] = useState(false);
+
+  const [viewRx, setViewRx] = useState<Prescription | null>(null);
+  const [deleteRx, setDeleteRx] = useState<Prescription | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const r = await api.getPatientPrescriptions();
+      if (r.success) {
+        setList(r.data || []);
+        onCountChange(r.data?.length || 0);
+      }
+    } catch (e: any) {
+      toast.push({ kind: 'error', title: 'فشل تحميل الروشتات', description: e.message });
+    } finally {
+      setLoading(false);
+    }
+  }, [user, onCountChange, toast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(f.type)) {
+      toast.push({ kind: 'error', title: 'صيغة غير مدعومة', description: 'استخدم ملف JPG أو PNG أو WEBP.' });
+      return;
+    }
+    if (f.size > 10 * 1024 * 1024) {
+      toast.push({ kind: 'error', title: 'الحجم كبير جداً', description: 'الحد الأقصى لحجم الصورة 10 ميجابايت.' });
+      return;
+    }
+    setFile(f);
+    const reader = new FileReader();
+    reader.onload = () => setPreview(reader.result as string);
+    reader.readAsDataURL(f);
+  };
+
+  const resetForm = () => {
+    setFile(null);
+    setPreview(null);
+    setNote('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleUpload = async () => {
+    if (!file || !preview) {
+      toast.push({ kind: 'error', title: 'اختر صورة', description: 'يرجى اختيار صورة الروشتة أولاً.' });
+      return;
+    }
+    setUploading(true);
+    try {
+      const r = await api.createPrescription({ image: preview, note: note.trim() });
+      if (r.success) {
+        toast.push({ kind: 'success', title: 'تم الحفظ', description: 'تم حفظ الروشتة في حسابك.' });
+        if (r.data.provider === 'freeimage') {
+          toast.push({ kind: 'info', title: 'تم الرفع عبر خادم بديل', description: 'تعذّر الرفع عبر الخادم الأساسي، تم الحفظ عبر خادم احتياطي.' });
+        }
+        resetForm();
+        load();
+      } else {
+        toast.push({ kind: 'error', title: 'فشل الحفظ', description: r.message });
+      }
+    } catch (e: any) {
+      toast.push({ kind: 'error', title: 'فشل رفع الصورة', description: e.message || 'تعذّر رفع الصورة، يمكنك المحاولة مجدداً.' });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteRx) return;
+    setDeleting(true);
+    try {
+      const r = await api.deletePrescription(deleteRx.id);
+      if (r.success) {
+        toast.push({ kind: 'success', title: 'تم حذف الروشتة' });
+        setList(prev => prev.filter(x => x.id !== deleteRx.id));
+        onCountChange(list.length - 1);
+        setDeleteRx(null);
+      } else {
+        toast.push({ kind: 'error', title: 'فشل الحذف', description: r.message });
+      }
+    } catch (e: any) {
+      toast.push({ kind: 'error', title: 'فشل الحذف', description: e.message });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Upload card */}
+      <div className="p-5 sm:p-6 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs space-y-4">
+        <div className="flex items-center gap-2">
+          <span className="w-9 h-9 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white flex items-center justify-center">
+            <UploadCloud className="w-4 h-4" />
+          </span>
+          <div>
+            <h2 className="text-sm font-bold text-[#0E3847] dark:text-white">إضافة روشتة جديدة</h2>
+            <p className="text-[11px] text-slate-400">ارفع صورة الروشتة واضافة ملاحظة اختيارية.</p>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-4">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="relative w-full sm:w-44 h-36 rounded-2xl border-2 border-dashed border-slate-300 dark:border-[#1F4E5A] bg-slate-50 dark:bg-[#123842] hover:border-[#E05A47] transition-colors flex flex-col items-center justify-center gap-1.5 cursor-pointer text-slate-400 overflow-hidden shrink-0"
+          >
+            {preview ? (
+              <img src={preview} alt="معاينة الروشتة" className="absolute inset-0 w-full h-full object-cover" />
+            ) : (
+              <>
+                <ImageIcon className="w-7 h-7" />
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-300 text-center px-2">اضغط لاختيار صورة الروشتة</span>
+                <span className="text-[10px] text-slate-400">JPG · PNG · WEBP</span>
+              </>
+            )}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={onFileChange}
+          />
+
+          <div className="flex-1 space-y-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                ملاحظات على الروشتة (اختياري)
+              </label>
+              <textarea
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                rows={3}
+                placeholder="مثال: نوع العلاج، سبب الروشتة، اسم الطبيب..."
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E05A47] resize-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={handleUpload}
+                disabled={uploading}
+                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-xs shadow-md transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+                {uploading ? 'جاري الرفع...' : 'حفظ الروشتة'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* List */}
+      {loading ? (
+        <LoadingSpinner message="جاري تحميل روشتاتك..." />
+      ) : list.length === 0 ? (
+        <EmptyState
+          icon={ImageIcon}
+          title="لا توجد روشتات محفوظة"
+          description="يمكنك حفظ صورة أي روشتة هنا لتكون متاحة بأمان في حسابك في أي وقت."
+        />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {list.map(rx => (
+            <div
+              key={rx.id}
+              className="rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs overflow-hidden flex flex-col"
+            >
+              <button
+                type="button"
+                onClick={() => setViewRx(rx)}
+                className="block w-full h-44 bg-slate-100 dark:bg-[#0E2C33] overflow-hidden cursor-pointer"
+                aria-label="عرض الروشتة"
+              >
+                <img
+                  src={rx.imageUrl}
+                  alt="روشتة"
+                  loading="lazy"
+                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                />
+              </button>
+
+              <div className="p-4 space-y-2.5 flex-1 flex flex-col">
+                <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-300">
+                  <Clock className="w-3.5 h-3.5 text-[#E05A47] shrink-0" />
+                  <span className="font-bold text-[#E05A47]">{formatPrescriptionDateTime(rx.createdAt)}</span>
+                </div>
+
+                {rx.note && (
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-3 bg-slate-50 dark:bg-[#123842] rounded-xl p-2.5">
+                    {rx.note}
+                  </p>
+                )}
+
+                <div className="pt-1 mt-auto flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setViewRx(rx)}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] transition-colors cursor-pointer"
+                  >
+                    <Eye className="w-3.5 h-3.5" /> عرض
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteRx(rx)}
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-xs font-bold hover:bg-rose-100 dark:hover:bg-rose-950/70 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> حذف
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Viewer modal */}
+      <Modal isOpen={!!viewRx} onClose={() => setViewRx(null)} title="عرض الروشتة" maxWidth="2xl">
+        {viewRx && (
+          <div className="space-y-4 text-right" dir="rtl">
+            <div className="max-h-[60vh] overflow-auto rounded-xl bg-slate-100 dark:bg-[#0E2C33] flex items-center justify-center">
+              <img src={viewRx.imageUrl} alt="روشتة" className="max-w-full max-h-[60vh] object-contain" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <span className="text-slate-400 block mb-0.5">تاريخ الإضافة</span>
+                <span className="font-bold text-[#E05A47]">{formatPrescriptionDateTime(viewRx.createdAt)}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-0.5">مزوّد الرفع</span>
+                <span className="font-bold text-slate-700 dark:text-slate-200">{viewRx.provider === 'imgbb' ? 'ImgBB' : 'FreeImage'}</span>
+              </div>
+            </div>
+            {viewRx.note && (
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap">
+                <strong className="text-slate-500 dark:text-slate-400 ml-1">الملاحظات:</strong>
+                {viewRx.note}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* Delete confirmation modal */}
+      <Modal isOpen={!!deleteRx} onClose={() => setDeleteRx(null)} title="حذف الروشتة" maxWidth="sm">
+        <div className="space-y-4 text-right" dir="rtl">
+          <p className="text-xs text-slate-600 dark:text-slate-300">
+            هل أنت متأكد من حذف هذه الروشتة؟ لا يمكن التراجع بعد الحذف.
+          </p>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setDeleteRx(null)}
+              className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-[#123842] text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer"
+            >
+              تراجع
+            </button>
+            <button
+              type="button"
+              onClick={confirmDelete}
+              disabled={deleting}
+              className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer disabled:opacity-60"
+            >
+              {deleting ? 'جاري الحذف...' : 'تأكيد الحذف'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}

@@ -54,7 +54,7 @@ const PUBLIC_PATH_LIST: PublicView[] = [
 
 const VALID_ADMIN_PAGES: AdminPageKey[] = [
   'dashboard', 'appointments', 'patients', 'branches',
-  'services', 'working-hours', 'cms', 'users',
+  'services', 'working-hours', 'cms', 'users', 'prescriptions',
 ];
 
 function pathToView(pathname: string): { view: 'admin' | PublicView; bookingParams: { branchId?: string; serviceId?: string } } {
@@ -121,7 +121,7 @@ function MainApp() {
   // Auth modal state
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authInitialTab, setAuthInitialTab] = useState<'login' | 'register'>('login');
-  const [patientTab, setPatientTab] = useState<'appointments' | 'records' | 'profile' | 'lookup'>('appointments');
+  const [patientTab, setPatientTab] = useState<'appointments' | 'records' | 'profile' | 'lookup' | 'prescriptions'>('appointments');
 
   // Sync state from URL on popstate (back/forward, refresh already initialized state)
   useEffect(() => {

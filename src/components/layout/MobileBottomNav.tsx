@@ -51,7 +51,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
   return (
     <div
-      className="md:hidden fixed bottom-0 inset-x-0 z-40 rounded-t-[1.75rem] bg-white/96 dark:bg-[#0E2C33]/96 backdrop-blur-xl border-t border-slate-200/80 dark:border-[#1A4550] px-2 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-8px_28px_rgba(14,56,71,0.1)] transition-colors"
+      className="md:hidden fixed bottom-0 inset-x-0 z-40 rounded-t-[1.75rem] bg-white/96 dark:bg-[#0E2C33]/96 backdrop-blur-xl border-t border-slate-200/80 dark:border-[#1A4550] px-2 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-8px_28px_rgba(14,56,71,0.1)] transition-colors no-print"
       role="navigation"
       aria-label="التنقل السريع"
     >

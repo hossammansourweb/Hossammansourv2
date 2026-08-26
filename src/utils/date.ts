@@ -104,3 +104,16 @@ export function formatDateDDMMYYYY(dateStr: string): string {
   if (!y || !m || !d) return dateStr;
   return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
 }
+
+/**
+ * Formats an ISO timestamp into "DD/MM/YYYY – hh:mm AM/PM" for prescription
+ * cards. Splits the ISO string locally (no `new Date(string)` timezone shift
+ * for the date part) and reuses the existing DD/MM/YYYY + 12-hour formatters.
+ */
+export function formatPrescriptionDateTime(iso: string): string {
+  if (!iso) return '';
+  // Handle both "2026-08-26T14:35:00.000Z" and "2026-08-26T14:35:00".
+  const [datePart, timePart = ''] = iso.split('T');
+  const hhmm = timePart.split('.')[0].split('+')[0].slice(0, 5);
+  return `${formatDateDDMMYYYY(datePart)} – ${formatTime12h(hhmm)}`;
+}

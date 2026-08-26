@@ -1,14 +1,15 @@
+import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db.ts';
-import { User, UserRole } from './src/types/index.ts';
+import { User, UserRole, Prescription, AdminPrescription } from './src/types/index.ts';
 
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // Custom Request Interface with User
 export interface AuthRequest extends Request {
@@ -73,6 +74,69 @@ const wrap = (fn: (req: AuthRequest, res: Response) => Promise<any>) =>
   (req: AuthRequest, res: Response, next: NextFunction) => {
     Promise.resolve(fn(req, res)).catch(next);
   };
+
+// ----------------------------------------------------
+// Image hosting proxy — uploads a base64 data-URL to an external host WITHOUT
+// exposing the API keys to the browser. Tries ImgBB first, then FreeImage.Host.
+// Returns { url, provider }. Throws if both fail (so callers do NOT create a
+// partial Firestore record).
+// ----------------------------------------------------
+async function uploadToImageHost(dataUrl: string): Promise<{ url: string; provider: 'imgbb' | 'freeimage' }> {
+  const match = /^data:(image\/\w+);base64,(.+)$/.exec(dataUrl);
+  if (!match) throw new Error('صيغة الصورة غير مدعومة.');
+  const base64 = match[2];
+
+  // 1) ImgBB
+  const imgbbKey = process.env.IMG_BB_API_KEY;
+  if (imgbbKey) {
+    try {
+      const body = new URLSearchParams();
+      body.append('image', base64);
+      const resp = await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(imgbbKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+      const json: any = await resp.json().catch(() => null);
+      if (json && json.success && json.data && json.data.url) {
+        return { url: json.data.url, provider: 'imgbb' };
+      }
+    } catch (err) {
+      console.warn('[imgbb] upload failed, attempting fallback:', (err as Error).message);
+    }
+  }
+
+  // 2) FreeImage.Host (fallback)
+  const freeKey = process.env.FREE_IMAGE_API_KEY;
+  if (freeKey) {
+    try {
+      const body = new URLSearchParams();
+      body.append('key', freeKey);
+      body.append('action', 'upload');
+      body.append('source', base64);
+      const resp = await fetch('https://freeimage.host/api/1/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+      const json: any = await resp.json().catch(() => null);
+      const url =
+        json?.data?.image?.url ||
+        json?.data?.url ||
+        json?.image?.url ||
+        (json?.data?.medium && json.data.medium.url);
+      if (url) return { url, provider: 'freeimage' };
+    } catch (err) {
+      console.warn('[freeimage] upload failed:', (err as Error).message);
+    }
+  }
+
+  throw new Error(
+    imgbbKey || freeKey
+      ? 'تعذر رفع الصورة إلى خادم الصور. يرجى المحاولة مرة أخرى.'
+      : 'خدمة رفع الصور غير مهيأة على الخادم.'
+  );
+}
 
 // ----------------------------------------------------
 // 1. PUBLIC API ROUTES
@@ -530,6 +594,53 @@ app.put('/api/patient/profile', authenticateToken, wrap(async (req: AuthRequest,
   res.json({ success: true, message: 'تم تحديث البيانات الشخصية بنجاح.', data: updated });
 }));
 
+// Patient Prescriptions (Digital Prescription Storage)
+app.get('/api/patient/prescriptions', authenticateToken, wrap(async (req: AuthRequest, res) => {
+  const user = req.user!;
+  const list = await db.getPrescriptions(user.id);
+  res.json({ success: true, data: list });
+}));
+
+app.post('/api/patient/prescriptions', authenticateToken, wrap(async (req: AuthRequest, res) => {
+  const user = req.user!;
+  const { image, note } = req.body as { image?: string; note?: string };
+
+  if (!image || typeof image !== 'string' || !image.startsWith('data:image/')) {
+    return res.status(400).json({ success: false, message: 'يرجى اختيار صورة صحيحة للروشتة.' });
+  }
+  if (image.length > 18 * 1024 * 1024) {
+    return res.status(413).json({ success: false, message: 'حجم الصورة كبير جداً. يرجى اختيار صورة أصغر.' });
+  }
+
+  try {
+    const { url, provider } = await uploadToImageHost(image);
+    const rx = await db.createPrescription(user.id, { imageUrl: url, provider, note: note || '' });
+    await db.logAudit(
+      user.id, user.name, user.role,
+      'PATIENT_CREATE_PRESCRIPTION', 'Prescription', rx.id,
+      `قام المريض بإضافة روشتة جديدة (${provider}).`
+    );
+    res.json({ success: true, message: 'تم حفظ الروشتة بنجاح.', data: rx });
+  } catch (err: any) {
+    return res.status(502).json({ success: false, message: err?.message || 'فشل رفع الصورة.' });
+  }
+}));
+
+app.delete('/api/patient/prescriptions/:id', authenticateToken, wrap(async (req: AuthRequest, res) => {
+  const user = req.user!;
+  const rx = await db.findPrescription(user.id, req.params.id);
+  if (!rx) {
+    return res.status(404).json({ success: false, message: 'الروشتة غير موجودة.' });
+  }
+  await db.deletePrescription(user.id, req.params.id);
+  await db.logAudit(
+    user.id, user.name, user.role,
+    'PATIENT_DELETE_PRESCRIPTION', 'Prescription', req.params.id,
+    'قام المريض بحذف روشتة.'
+  );
+  res.json({ success: true, message: 'تم حذف الروشتة بنجاح.' });
+}));
+
 // ----------------------------------------------------
 // 4. ADMIN & CLINIC MANAGEMENT ROUTES
 // ----------------------------------------------------
@@ -537,6 +648,22 @@ app.put('/api/patient/profile', authenticateToken, wrap(async (req: AuthRequest,
 app.get('/api/admin/dashboard-stats', authenticateToken, requireRoles('super_admin', 'receptionist', 'content_editor'), wrap(async (req, res) => {
   const stats = await db.getDashboardStats();
   res.json({ success: true, data: stats });
+}));
+
+// Admin: view all patients' prescriptions (authorized staff only).
+app.get('/api/admin/prescriptions', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req, res) => {
+  const { search } = req.query as any;
+  let list: AdminPrescription[] = await db.getAllPrescriptions();
+  if (search) {
+    const q = search.trim().toLowerCase();
+    list = list.filter(p =>
+      (p.patientName || '').toLowerCase().includes(q) ||
+      (p.patientPhone || '').includes(q) ||
+      (p.patientEmail || '').toLowerCase().includes(q) ||
+      (p.createdAt || '').toLowerCase().includes(q)
+    );
+  }
+  res.json({ success: true, data: list });
 }));
 
 app.get('/api/admin/appointments', authenticateToken, requireRoles('super_admin', 'receptionist'), wrap(async (req, res) => {

@@ -13,11 +13,12 @@ import {
   TrendingUp,
   BadgeCheck,
   UserCog,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { api } from '../../services/api.ts';
 import { useAuth } from '../../context/AuthContext.tsx';
 import { useAdminCtx } from './shell.tsx';
-import { formatArabicDate, formatArabicTime, formatTime12h, getTodayDateString, getDayOfWeekArabic } from '../../utils/date.ts';
+import { formatArabicDate, formatArabicTime, formatTime12h, getTodayDateString, getDayOfWeekArabic, formatPrescriptionDateTime } from '../../utils/date.ts';
 import type {
   Appointment,
   Branch,
@@ -30,6 +31,7 @@ import type {
   Announcement,
   User,
   DashboardStats,
+  AdminPrescription,
 } from '../../types/index.ts';
 import {
   StatCard,
@@ -59,6 +61,7 @@ import {
   FaqModal,
   UserModal,
 } from './ui.tsx';
+import { Modal } from '../common/Modal.tsx';
 
 type Toast = ReturnType<typeof useToast>;
 
@@ -257,7 +260,7 @@ export function Appointments() {
     try {
       await api.deleteAppointment(confirmDelete.id);
       toast.push({ kind: 'success', title: 'تم حذف الموعد', description: 'تم حذف الموعد بشكل دائم من النظام.' });
-      setConfirmDelete(null); load();
+      setConfirmDelete(null); setViewing(null); load();
     } catch (e: any) { toast.push({ kind: 'error', title: 'فشل الحذف', description: e.message }); }
     finally { setDeleting(false); }
   };
@@ -389,6 +392,8 @@ export function Appointments() {
 
       <ViewAppointmentModal open={!!viewing} appointment={viewing} loading={false}
         onClose={() => setViewing(null)}
+        onChangeStatus={(a) => { setSelectedStatus(a.status); setStatusModal(a); }}
+        onDelete={(a) => setConfirmDelete(a)}
         onChanged={(a) => { setViewing(null); load(); toast.push({ kind: 'success', title: 'تم تحديث الحالة' }); void a; }} />
 
       {/* Status Change Modal */}
@@ -1396,6 +1401,161 @@ export function UsersPage() {
       <ConfirmDialog open={!!confirmDelete} title="حذف الموظف؟" confirmLabel="حذف" danger
         description={confirmDelete ? <>هل تريد حذف <b>{confirmDelete.name}</b>؟</> : null}
         loading={deleting} onConfirm={doDelete} onClose={() => setConfirmDelete(null)} />
+    </div>
+  );
+}
+
+/* ============================================================
+   PRESCRIPTIONS (admin — review patients' uploaded prescriptions)
+   ============================================================ */
+export function Prescriptions() {
+  const toast = useToast();
+  const [data, setData] = useState<AdminPrescription[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [viewRx, setViewRx] = useState<AdminPrescription | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const r = await api.getAdminPrescriptions();
+      if (r.success) setData(r.data || []);
+      else setError(r.message || 'فشل في جلب الروشتات');
+    } catch (e: any) {
+      setError(e.message || 'خطأ في الاتصال');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const filtered = data.filter(p => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (p.patientName || '').toLowerCase().includes(q) ||
+      (p.patientPhone || '').includes(q) ||
+      (p.patientEmail || '').toLowerCase().includes(q) ||
+      (p.createdAt || '').toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <div>
+      <div className="surface-card rounded-2xl p-4 mb-4">
+        <SearchBar
+          value={search}
+          onChange={setSearch}
+          placeholder="ابحث باسم المريض، الهاتف، البريد، أو التاريخ..."
+        />
+      </div>
+
+      {loading ? (
+        <LoadingState label="جارِ تحميل روشتات المرضى..." />
+      ) : error ? (
+        <ErrorState message={error} onRetry={load} />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={ImageIcon}
+          title={data.length === 0 ? 'لا توجد روشتات محفوظة' : 'لا توجد نتائج'}
+          description={data.length === 0 ? 'لم يتم حفظ أي روشتات من المرضى بعد.' : 'جرّب بحثاً مختلفاً.'}
+        />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filtered.map(rx => (
+            <div
+              key={rx.id}
+              className="rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-2xs overflow-hidden flex flex-col"
+            >
+              <button
+                type="button"
+                onClick={() => setViewRx(rx)}
+                className="block w-full h-40 bg-slate-100 dark:bg-[#0E2C33] overflow-hidden cursor-pointer"
+                aria-label="عرض الروشتة"
+              >
+                <img
+                  src={rx.imageUrl}
+                  alt="روشتة"
+                  loading="lazy"
+                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                />
+              </button>
+
+              <div className="p-3.5 space-y-2.5 flex-1 flex flex-col">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-bold text-slate-900 dark:text-white truncate">{rx.patientName}</span>
+                  <span className="font-mono text-[11px] text-teal-600 dark:text-teal-400 shrink-0" dir="ltr">{rx.patientPhone || '—'}</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-300">
+                  <ClockIcon className="w-3.5 h-3.5 text-[#E05A47] shrink-0" />
+                  <span className="font-bold text-[#E05A47]">{formatPrescriptionDateTime(rx.createdAt)}</span>
+                </div>
+
+                {rx.patientEmail && (
+                  <p className="text-[11px] text-slate-400 truncate" dir="ltr">{rx.patientEmail}</p>
+                )}
+
+                {rx.note && (
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2 bg-slate-50 dark:bg-[#123842] rounded-xl p-2">
+                    {rx.note}
+                  </p>
+                )}
+
+                <div className="pt-1 mt-auto">
+                  <button
+                    type="button"
+                    onClick={() => setViewRx(rx)}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] transition-colors cursor-pointer"
+                  >
+                    <Eye className="w-3.5 h-3.5" /> عرض الروشتة
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Modal isOpen={!!viewRx} onClose={() => setViewRx(null)} title="عرض الروشتة" maxWidth="2xl">
+        {viewRx && (
+          <div className="space-y-4 text-right" dir="rtl">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <span className="text-slate-400 block mb-0.5">المريض</span>
+                <span className="font-bold text-slate-900 dark:text-white">{viewRx.patientName}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-0.5">الهاتف</span>
+                <span className="font-bold text-slate-700 dark:text-slate-200" dir="ltr">{viewRx.patientPhone || '—'}</span>
+              </div>
+              {viewRx.patientEmail && (
+                <div>
+                  <span className="text-slate-400 block mb-0.5">البريد الإلكتروني</span>
+                  <span className="font-bold text-slate-700 dark:text-slate-200" dir="ltr">{viewRx.patientEmail}</span>
+                </div>
+              )}
+              <div>
+                <span className="text-slate-400 block mb-0.5">تاريخ الإضافة</span>
+                <span className="font-bold text-[#E05A47]">{formatPrescriptionDateTime(viewRx.createdAt)}</span>
+              </div>
+            </div>
+
+            <div className="max-h-[55vh] overflow-auto rounded-xl bg-slate-100 dark:bg-[#0E2C33] flex items-center justify-center">
+              <img src={viewRx.imageUrl} alt="روشتة" className="max-w-full max-h-[55vh] object-contain" />
+            </div>
+
+            {viewRx.note && (
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#123842] border border-slate-200 dark:border-[#1F4E5A] text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap">
+                <strong className="text-slate-500 dark:text-slate-400 ml-1">ملاحظات المريض:</strong>
+                {viewRx.note}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

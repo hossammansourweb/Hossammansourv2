@@ -1,22 +1,27 @@
 import { Appointment } from '../types/index.ts';
 
+// Reminder lead time: the calendar entry is placed 2 hours BEFORE the actual
+// appointment so the patient gets a heads-up in case they haven't shown up.
+const REMINDER_LEAD_MS = 2 * 60 * 60 * 1000;
+
 export function generateGoogleCalendarUrl(apt: Appointment): string {
   const [y, m, d] = apt.appointmentDate.split('-');
   const [h, min] = apt.appointmentTime.split(':');
 
-  const startDate = new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min));
-  const endDate = new Date(startDate.getTime() + 30 * 60 * 1000); // 30 mins duration
+  const apptStart = new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min));
+  const reminderStart = new Date(apptStart.getTime() - REMINDER_LEAD_MS);
+  const reminderEnd = apptStart;
 
   const formatUtc = (date: Date) => {
     return date.toISOString().replace(/-|:|\.\d+/g, '');
   };
 
-  const title = encodeURIComponent(`موعد كشف عظام - د. حسام منصور (${apt.serviceName || 'استشارة'})`);
+  const title = encodeURIComponent(`تذكير موعد كشف عظام - د. حسام منصور (${apt.serviceName || 'استشارة'})`);
   const details = encodeURIComponent(
-    `كشف في عيادة د. حسام منصور أبو كحلة - استشاري جراحة العظام والمفاصل.\nرقم الحجز: ${apt.bookingNumber}\nاسم المريض: ${apt.patientName}\nالفرع: ${apt.branchName}\nيرجى الحضور قبل الموعد بـ 15 دقيقة وإحضار الفحوصات والأشعة السابقة.`
+    `تذكير قبل موعد الكشف بساعتين.\nرقم الحجز: ${apt.bookingNumber}\nاسم المريض: ${apt.patientName}\nالفرع: ${apt.branchName}\nموعد الكشف: ${apt.appointmentDate} الساعة ${apt.appointmentTime}\nيرجى الحضور قبل الموعد بـ 15 دقيقة وإحضار الفحوصات والأشرة السابقة.`
   );
   const location = encodeURIComponent(apt.branchName || 'عيادة د. حسام منصور');
-  const dates = `${formatUtc(startDate)}/${formatUtc(endDate)}`;
+  const dates = `${formatUtc(reminderStart)}/${formatUtc(reminderEnd)}`;
 
   return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&location=${location}&dates=${dates}`;
 }
@@ -25,8 +30,9 @@ export function downloadIcsFile(apt: Appointment) {
   const [y, m, d] = apt.appointmentDate.split('-');
   const [h, min] = apt.appointmentTime.split(':');
 
-  const startDate = new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min));
-  const endDate = new Date(startDate.getTime() + 30 * 60 * 1000);
+  const apptStart = new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min));
+  const reminderStart = new Date(apptStart.getTime() - REMINDER_LEAD_MS);
+  const reminderEnd = apptStart;
 
   const formatIcsDate = (date: Date) => {
     return date.toISOString().replace(/-|:|\.\d+/g, '').slice(0, 15) + 'Z';
@@ -40,12 +46,17 @@ export function downloadIcsFile(apt: Appointment) {
     'BEGIN:VEVENT',
     `UID:${apt.id}@hossammansour.clinic`,
     `DTSTAMP:${formatIcsDate(new Date())}`,
-    `DTSTART:${formatIcsDate(startDate)}`,
-    `DTEND:${formatIcsDate(endDate)}`,
-    `SUMMARY:موعد كشف عظام - د. حسام منصور (${apt.serviceName || 'استشارة'})`,
-    `DESCRIPTION:رقم الحجز: ${apt.bookingNumber}\\nالمريض: ${apt.patientName}\\nالفرع: ${apt.branchName}\\nيرجى إحضار الأشعة والتقارير الطبية السابقة.`,
+    `DTSTART:${formatIcsDate(reminderStart)}`,
+    `DTEND:${formatIcsDate(reminderEnd)}`,
+    `SUMMARY:تذكير موعد كشف عظام - د. حسام منصور (${apt.serviceName || 'استشارة'})`,
+    `DESCRIPTION:رقم الحجز: ${apt.bookingNumber}\\nالمريض: ${apt.patientName}\\nالفرع: ${apt.branchName}\\nموعد الكشف: ${apt.appointmentDate} الساعة ${apt.appointmentTime}\\nيرجى إحضار الأشعة والتقارير الطبية السابقة.`,
     `LOCATION:${apt.branchName || 'عيادة د. حسام منصور'}`,
     'STATUS:CONFIRMED',
+    'BEGIN:VALARM',
+    'TRIGGER:-PT0M',
+    'ACTION:DISPLAY',
+    'DESCRIPTION:تذكير موعد الكشف بعد ساعتين',
+    'END:VALARM',
     'END:VEVENT',
     'END:VCALENDAR',
   ].join('\r\n');
@@ -58,3 +69,4 @@ export function downloadIcsFile(apt: Appointment) {
   link.click();
   document.body.removeChild(link);
 }
+

@@ -18,6 +18,8 @@ import {
   NotificationRecord,
   AvailableSlot,
   DashboardStats,
+  Prescription,
+  AdminPrescription,
 } from '../src/types/index.ts';
 
 const timestamp = () => FieldValue.serverTimestamp();
@@ -41,6 +43,7 @@ const COL = {
   announcements: 'announcements',
   auditLogs: 'auditLogs',
   notifications: 'notifications',
+  prescriptions: 'prescriptions',
 };
 
 const DOCTOR_PROFILE_DOC_ID = 'main';
@@ -238,6 +241,93 @@ class ClinicDatabase {
     try { await firebaseAuth().deleteUser(id); } catch { /* ignore */ }
     await ref.delete();
     return data;
+  }
+
+  // ----------------- PRESCRIPTIONS -----------------
+  // Stored under users/{userId}/prescriptions/{id} — never world-readable and
+  // only reachable by the owner (patient) or staff via the Admin SDK.
+  // Serialize a raw Firestore doc into a Prescription, converting the
+  // serverTimestamp fields into ISO strings for the client.
+  private toPrescription(id: string, data: any): Prescription {
+    return {
+      id,
+      userId: data.userId,
+      imageUrl: data.imageUrl,
+      provider: data.provider,
+      note: data.note || '',
+      createdAt: toIso(data.createdAt),
+      updatedAt: toIso(data.updatedAt),
+    };
+  }
+
+  public async getPrescriptions(userId: string): Promise<Prescription[]> {
+    const snap = await firestore()
+      .collection(COL.users)
+      .doc(userId)
+      .collection(COL.prescriptions)
+      .orderBy('createdAt', 'desc')
+      .get();
+    return snap.docs.map(d => this.toPrescription(d.id, d.data() as any));
+  }
+
+  public async createPrescription(
+    userId: string,
+    data: { imageUrl: string; provider: 'imgbb' | 'freeimage'; note?: string }
+  ): Promise<Prescription> {
+    const id = `rx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const now = new Date().toISOString();
+    const payload = {
+      id,
+      userId,
+      imageUrl: data.imageUrl,
+      provider: data.provider,
+      note: data.note || '',
+      createdAt: timestamp(),
+      updatedAt: timestamp(),
+    };
+    await firestore().collection(COL.users).doc(userId).collection(COL.prescriptions).doc(id).set(payload);
+    return {
+      id,
+      userId,
+      imageUrl: data.imageUrl,
+      provider: data.provider,
+      note: data.note || '',
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  public async findPrescription(userId: string, id: string): Promise<Prescription | null> {
+    const doc = await firestore().collection(COL.users).doc(userId).collection(COL.prescriptions).doc(id).get();
+    if (!doc.exists) return null;
+    return this.toPrescription(doc.id, doc.data() as any);
+  }
+
+  public async deletePrescription(userId: string, id: string): Promise<boolean> {
+    const ref = firestore().collection(COL.users).doc(userId).collection(COL.prescriptions).doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) return false;
+    await ref.delete();
+    return true;
+  }
+
+  // Admin: every prescription across all patients, joined with the owner's
+  // profile so the dashboard can show who uploaded it.
+  public async getAllPrescriptions(): Promise<AdminPrescription[]> {
+    const snap = await firestore().collectionGroup(COL.prescriptions).orderBy('createdAt', 'desc').get();
+    const items = snap.docs.map(d => this.toPrescription(d.id, d.data() as any));
+    const userIds = Array.from(new Set(items.map(i => i.userId)));
+    const users = await Promise.all(userIds.map(uid => this.findUserById(uid)));
+    const userMap = new Map(users.filter(Boolean).map(u => [u!.id, u!]));
+    return items.map(i => {
+      const u = userMap.get(i.userId);
+      return {
+        ...i,
+        patientName: u?.name || 'مريض غير معروف',
+        patientEmail: u?.email,
+        patientPhone: u?.phone || '',
+      } as AdminPrescription;
+    });
   }
 
   // ----------------- BRANCHES -----------------
@@ -624,8 +714,8 @@ class ClinicDatabase {
       this.findBranchById(data.branchId),
     ]);
 
-    const randomDigits = Math.floor(1000 + Math.random() * 9000);
-    const bookingNumber = `HM-${new Date().getFullYear()}-${randomDigits}`;
+    const randomDigits = Math.floor(100000 + Math.random() * 900000);
+    const bookingNumber = `HM-${randomDigits}`;
     const id = `apt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const nowIso = new Date().toISOString();
 

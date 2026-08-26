@@ -33,6 +33,8 @@ import {
   NotificationRecord,
   AvailableSlot,
   DashboardStats,
+  Prescription,
+  AdminPrescription,
 } from '../types/index.ts';
 
 const API_BASE = '/api';
@@ -282,6 +284,26 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
+
+  // Prescriptions (Digital Prescription Storage)
+  getPatientPrescriptions: () =>
+    request<{ success: boolean; data: Prescription[] }>('/patient/prescriptions'),
+
+  createPrescription: (payload: { image: string; note?: string }) =>
+    request<{ success: boolean; message: string; data: Prescription }>('/patient/prescriptions', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  deletePrescription: (id: string) =>
+    request<{ success: boolean; message: string }>(`/patient/prescriptions/${id}`, {
+      method: 'DELETE',
+    }),
+
+  getAdminPrescriptions: (search?: string) =>
+    request<{ success: boolean; data: AdminPrescription[]; message?: string }>(
+      `/admin/prescriptions${search ? `?search=${encodeURIComponent(search)}` : ''}`
+    ),
 
   // Admin
   getDashboardStats: () => request<{ success: boolean; data: DashboardStats; message?: string }>('/admin/dashboard-stats'),

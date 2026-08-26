@@ -11,6 +11,8 @@ import {
   Star,
   MoreVertical,
   CalendarClock,
+  FileEdit,
+  Trash2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { api } from '../../services/api.ts';
@@ -1138,12 +1140,16 @@ export function ViewAppointmentModal({
   loading,
   onClose,
   onChanged,
+  onDelete,
+  onChangeStatus,
 }: {
   open: boolean;
   appointment: any;
   loading: boolean;
   onClose?: () => void;
   onChanged?: (a: Appointment) => void;
+  onDelete?: (a: any) => void;
+  onChangeStatus?: (a: any) => void;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -1200,14 +1206,36 @@ export function ViewAppointmentModal({
               <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white font-tajawal">تفاصيل الحجز كاملة</h3>
               <p className="text-[11px] text-slate-400 mt-0.5">عرض جميع بيانات الحجز والمريض</p>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-[#123842] dark:hover:text-slate-200 transition-colors cursor-pointer"
-              aria-label="إغلاق"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              {onChangeStatus && (
+                <button
+                  type="button"
+                  onClick={() => onChangeStatus(apt)}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-[#1E4F5A] text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#123842] transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <FileEdit className="w-4 h-4" />
+                  <span>تعديل الحالة</span>
+                </button>
+              )}
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={() => onDelete(apt)}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>حذف</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-[#123842] dark:hover:text-slate-200 transition-colors cursor-pointer"
+                aria-label="إغلاق"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
           <div className="p-6 max-h-[70vh] overflow-y-auto">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

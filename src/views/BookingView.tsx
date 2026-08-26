@@ -697,7 +697,8 @@ export const BookingView: React.FC<BookingViewProps> = ({
 
       {/* STEP 4: Confirmed Appointment Slip */}
       {step === 4 && confirmedAppointment && (
-        <div className="p-6 sm:p-8 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-xl space-y-6 animate-in zoom-in-95">
+        <>
+          <div className="p-6 sm:p-8 rounded-2xl bg-white dark:bg-[#10333C] border border-slate-200/80 dark:border-[#17424C] shadow-xl space-y-6 animate-in zoom-in-95 no-print">
           {/* Header Success Badge */}
           <div className="text-center space-y-2">
             <div className="w-14 h-14 rounded-full bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
@@ -758,20 +759,63 @@ export const BookingView: React.FC<BookingViewProps> = ({
               </button>
             </div>
           </div>
+        </div>
 
-          <div className="text-center pt-2">
-            <button
-              type="button"
-              onClick={() => {
-                setStep(1);
-                setConfirmedAppointment(null);
-              }}
-              className="text-xs text-[#E05A47] hover:underline font-bold cursor-pointer"
-            >
-              + حجز موعد جديد لمريض آخر
-            </button>
+        {/* Professional printable invoice (only visible when printing) */}
+        <div className="print-area">
+          <div style={{ maxWidth: 480, margin: '0 auto', padding: 24, color: '#0E3847', fontFamily: 'system-ui, Tahoma, sans-serif', direction: 'rtl' }}>
+            <div style={{ textAlign: 'center', borderBottom: '2px solid #0E3847', paddingBottom: 12, marginBottom: 16 }}>
+              <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>عيادة د. حسام منصور</h1>
+              <p style={{ fontSize: 11, margin: '4px 0 0', color: '#475569' }}>استشاري جراحة العظام والمفاصل</p>
+              <p style={{ fontSize: 13, fontWeight: 700, marginTop: 8, color: '#0E3847' }}>إيصال تأكيد موعد الكشف</p>
+            </div>
+
+            <div style={{ textAlign: 'center', marginBottom: 18 }}>
+              <div style={{ fontSize: 11, color: '#64748b' }}>رقم الحجز المرجعي</div>
+              <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: 1, fontFamily: 'monospace', color: '#E05A47' }} dir="ltr">{confirmedAppointment.bookingNumber}</div>
+            </div>
+
+            <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+              <tbody>
+                <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                  <td style={{ padding: '8px 4px', color: '#64748b', fontWeight: 700 }}>اسم المريض</td>
+                  <td style={{ padding: '8px 4px', textAlign: 'left', fontWeight: 700 }}>{confirmedAppointment.patientName}</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                  <td style={{ padding: '8px 4px', color: '#64748b', fontWeight: 700 }}>رقم الهاتف</td>
+                  <td style={{ padding: '8px 4px', textAlign: 'left', fontWeight: 700 }} dir="ltr">{confirmedAppointment.patientPhone}</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                  <td style={{ padding: '8px 4px', color: '#64748b', fontWeight: 700 }}>الطبيب</td>
+                  <td style={{ padding: '8px 4px', textAlign: 'left', fontWeight: 700 }}>د. حسام منصور أبوكل</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                  <td style={{ padding: '8px 4px', color: '#64748b', fontWeight: 700 }}>الفرع</td>
+                  <td style={{ padding: '8px 4px', textAlign: 'left', fontWeight: 700 }}>{confirmedAppointment.branchName}</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                  <td style={{ padding: '8px 4px', color: '#64748b', fontWeight: 700 }}>الخدمة</td>
+                  <td style={{ padding: '8px 4px', textAlign: 'left', fontWeight: 700 }}>{confirmedAppointment.serviceName}</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                  <td style={{ padding: '8px 4px', color: '#64748b', fontWeight: 700 }}>تاريخ الموعد</td>
+                  <td style={{ padding: '8px 4px', textAlign: 'left', fontWeight: 700 }}>{formatArabicDate(confirmedAppointment.appointmentDate)}</td>
+                </tr>
+                <tr>
+                  <td style={{ padding: '8px 4px', color: '#64748b', fontWeight: 700 }}>الوقت</td>
+                  <td style={{ padding: '8px 4px', textAlign: 'left', fontWeight: 800, color: '#E05A47' }}>{formatArabicTime(confirmedAppointment.appointmentTime)}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <p style={{ fontSize: 11, textAlign: 'center', marginTop: 18, color: '#64748b', lineHeight: 1.6 }}>
+              يرجى الحضور قبل الموعد بـ 15 دقيقة وإحضار الفحوصات والأشعة السابقة.
+              <br />
+              للاستعلام: 01113244403
+            </p>
           </div>
         </div>
+        </>
       )}
     </div>
   );

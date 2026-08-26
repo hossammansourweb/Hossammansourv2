@@ -20,13 +20,14 @@ import {
   Home,
   MapPin,
   FileText,
+  Image as ImageIcon,
   ChevronDown,
 } from 'lucide-react';
 
 interface NavbarProps {
   currentView: string;
   onNavigate: (view: string) => void;
-  onNavigatePatient: (tab: 'appointments' | 'records' | 'profile' | 'lookup') => void;
+  onNavigatePatient: (tab: 'appointments' | 'records' | 'profile' | 'lookup' | 'prescriptions') => void;
   onOpenAuth: (tab?: 'login' | 'register') => void;
 }
 
@@ -80,7 +81,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onNavig
       </div>
 
       {/* 2. Main Clean Navbar (Matches Screenshot 1 & 2) */}
-      <header className="sticky top-0 z-40 w-full bg-white/92 dark:bg-[#0E2C33]/92 backdrop-blur-xl border-b border-slate-100/90 dark:border-[#17424C] transition-colors shadow-[0_6px_24px_rgba(14,56,71,0.06)]">
+      <header className="sticky top-0 z-40 w-full bg-white/92 dark:bg-[#0E2C33]/92 backdrop-blur-xl border-b border-slate-100/90 dark:border-[#17424C] transition-colors shadow-[0_6px_24px_rgba(14,56,71,0.06)] no-print">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-[4.5rem] sm:h-20">
             {/* Right: Brand Doctor Logo & Title */}
@@ -221,6 +222,15 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onNavig
                       >
                         <FileText className="w-4 h-4 text-teal-600 shrink-0" />
                         <span className="font-medium">الملف الطبي</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setUserDropdownOpen(false); onNavigatePatient('prescriptions'); }}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-[#164450] transition-colors cursor-pointer"
+                      >
+                        <ImageIcon className="w-4 h-4 text-teal-600 shrink-0" />
+                        <span className="font-medium">روشتاتي</span>
                       </button>
 
                       <button

@@ -27,6 +27,7 @@ import {
   WorkingHours,
   Cms,
   UsersPage,
+  Prescriptions,
 } from './pages.tsx';
 import { ToastProvider } from './ui.tsx';
 
@@ -38,7 +39,8 @@ export type AdminPageKey =
   | 'services'
   | 'working-hours'
   | 'cms'
-  | 'users';
+  | 'users'
+  | 'prescriptions';
 
 export interface AdminPage {
   key: AdminPageKey;
@@ -62,6 +64,7 @@ export const ADMIN_PAGES: AdminPage[] = [
   { key: 'working-hours', label: 'مواعيد العمل والإجازات', icon: Clock, roles: ['super_admin', 'receptionist', 'content_editor'], section: 'عمليات' },
   { key: 'cms', label: 'محتوى الموقع', icon: FileText, roles: ['super_admin', 'content_editor'], section: 'عمليات' },
   { key: 'users', label: 'المستخدمون والصلاحيات', icon: UserCog, roles: ['super_admin'], section: 'نظام' },
+  { key: 'prescriptions', label: 'روشتات المرضى', icon: FileText, roles: ['super_admin', 'receptionist'], section: 'عام' },
 ];
 
 type Role = 'super_admin' | 'receptionist' | 'content_editor';
@@ -409,6 +412,7 @@ export function AdminApp({
                   {page === 'working-hours' && <WorkingHours />}
                   {page === 'cms' && <Cms />}
                   {page === 'users' && <UsersPage />}
+                  {page === 'prescriptions' && <Prescriptions />}
                 </motion.div>
               </AnimatePresence>
             </main>

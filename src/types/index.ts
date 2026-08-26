@@ -168,6 +168,22 @@ export interface NotificationRecord {
   createdAt: string;
 }
 
+export interface Prescription {
+  id: string;
+  userId: string;
+  imageUrl: string;
+  provider: 'imgbb' | 'freeimage';
+  note?: string;
+  createdAt: string; // ISO timestamp
+  updatedAt?: string;
+}
+
+export interface AdminPrescription extends Prescription {
+  patientName: string;
+  patientEmail?: string;
+  patientPhone: string;
+}
+
 export interface AvailableSlot {
   time: string; // HH:MM
   isAvailable: boolean;
