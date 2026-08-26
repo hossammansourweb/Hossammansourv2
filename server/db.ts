@@ -443,13 +443,16 @@ class ClinicDatabase {
     const startMins = parseMins(startTimeStr);
     const endMins = parseMins(endTimeStr);
 
+    // Query by appointmentDate only (single equality uses auto-created single-field index).
+    // We filter by branchId and exclude cancelled status in app code to avoid the
+    // composite index requirement of mixing != with multiple == filters.
     const bookingsSnap = await firestore()
       .collection(COL.appointments)
-      .where('branchId', '==', branchId)
       .where('appointmentDate', '==', dateStr)
-      .where('status', '!=', 'cancelled')
       .get();
-    const existingBookings = bookingsSnap.docs.map(d => d.data() as Appointment);
+    const existingBookings = bookingsSnap.docs
+      .map(d => d.data() as Appointment)
+      .filter(apt => apt.branchId === branchId && apt.status !== 'cancelled');
 
     const breaks = rule.breaks || [];
     const slots: AvailableSlot[] = [];
@@ -563,15 +566,19 @@ class ClinicDatabase {
     confirmationMethod?: 'whatsapp' | 'sms' | 'call';
     notes?: string;
   }): Promise<Appointment> {
+    // Use equality filters only (auto-indexed) and filter cancelled in code
+    // to avoid composite index requirement of mixing != with == filters.
     const conflictQ = await firestore()
       .collection(COL.appointments)
       .where('branchId', '==', data.branchId)
       .where('appointmentDate', '==', data.appointmentDate)
       .where('appointmentTime', '==', data.appointmentTime)
-      .where('status', '!=', 'cancelled')
       .limit(1)
       .get();
-    if (!conflictQ.empty) {
+    const hasConflict = conflictQ.docs.some(
+      d => (d.data() as Appointment).status !== 'cancelled'
+    );
+    if (hasConflict) {
       throw new Error('هذا الموعد تم حجزه بالفعل لمريض آخر، يرجى اختيار موعد آخر متاح.');
     }
 
@@ -674,14 +681,17 @@ class ClinicDatabase {
     const apt = doc.data() as Appointment;
     const targetBranchId = newBranchId || apt.branchId;
 
+    // Use equality filters only (auto-indexed) and filter cancelled in code
+    // to avoid composite index requirement of mixing != with == filters.
     const conflictQ = await firestore()
       .collection(COL.appointments)
       .where('branchId', '==', targetBranchId)
       .where('appointmentDate', '==', newDate)
       .where('appointmentTime', '==', newTime)
-      .where('status', '!=', 'cancelled')
       .get();
-    const conflict = conflictQ.docs.find(d => d.id !== id);
+    const conflict = conflictQ.docs.find(
+      d => d.id !== id && (d.data() as Appointment).status !== 'cancelled'
+    );
     if (conflict) {
       throw new Error('الموعد الجديد المختار محجوز بالفعل، يرجى اختيار موعد آخر.');
     }

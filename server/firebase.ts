@@ -1,10 +1,10 @@
 import {
   initializeApp,
-  initializeFirestore,
   cert,
   getApps,
   type App,
 } from 'firebase-admin/app';
+import { initializeFirestore, getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -80,8 +80,6 @@ export const db = () => {
   } catch {
     // App already initialized — get the default instance and apply the same
     // settings so the rest of the code path behaves identically.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { getFirestore } = require('firebase-admin/firestore');
     dbInstance = getFirestore(getFirebase());
     try {
       dbInstance.settings({ ignoreUndefinedProperties: true });
