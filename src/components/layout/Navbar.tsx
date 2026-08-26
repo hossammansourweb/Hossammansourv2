@@ -148,10 +148,10 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
               {!user && (
                 <button
                   type="button"
-                  onClick={() => onOpenAuth('register')}
+                  onClick={() => onOpenAuth('login')}
                   className="hidden lg:flex w-10 h-10 rounded-full border border-slate-200 dark:border-[#1F4E5A] bg-white dark:bg-[#123842] hover:bg-slate-50 dark:hover:bg-[#184854] text-slate-700 dark:text-slate-200 items-center justify-center shadow-2xs transition-colors cursor-pointer"
-                  aria-label="إنشاء حساب"
-                  title="إنشاء حساب"
+                  aria-label="تسجيل الدخول"
+                  title="تسجيل الدخول"
                 >
                   <User className="w-4.5 h-4.5 text-slate-600 dark:text-slate-300" />
                 </button>

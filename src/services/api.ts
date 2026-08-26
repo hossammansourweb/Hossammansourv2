@@ -12,6 +12,12 @@ import {
   type Auth,
   type User as FirebaseUser,
 } from 'firebase/auth';
+import {
+  GOOGLE_CLIENT_ID,
+  signInWithGooglePopup,
+  signInWithGoogleCredential,
+  getSignInMethodsForEmail,
+} from './googleAuth.ts';
 import firebaseConfig from './firebaseClient';
 import {
   User,
@@ -151,6 +157,21 @@ export const api = {
 
   onAuthStateChanged: (cb: (u: FirebaseUser | null) => void) =>
     onAuthStateChanged(getAuthClient(), cb),
+
+  // Google authentication (reuses the existing Firebase Auth instance)
+  signInWithGoogle: () => signInWithGooglePopup(),
+  signInWithGoogleCredential: (credential: string) =>
+    signInWithGoogleCredential(credential),
+  getSignInMethodsForEmail: (email: string) => getSignInMethodsForEmail(email),
+  googleClientId: GOOGLE_CLIENT_ID,
+
+  // Provisions (or fetches) the Firestore profile for the signed-in Firebase
+  // user. New Google users get a normal 'patient' record — never admin.
+  syncGoogleUser: (token?: string | null) =>
+    request<{ success: boolean; message?: string; data: User }>('/auth/sync', {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    }),
 
   getIdToken: () => getIdToken(),
 

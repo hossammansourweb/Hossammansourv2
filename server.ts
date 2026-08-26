@@ -343,6 +343,43 @@ app.get('/api/auth/me', authenticateToken, (req: AuthRequest, res) => {
   res.json({ success: true, data: req.user });
 });
 
+// Provision / fetch the Firestore profile for the signed-in Firebase user.
+// Used by Google Sign-In / One Tap: a new Google user gets a NORMAL patient
+// record (role 'patient'). Existing accounts are returned unchanged — their
+// role/permissions are never overwritten, and Google users are NEVER admins.
+app.post('/api/auth/sync', wrap(async (req: AuthRequest, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ success: false, message: 'غير مصرح.' });
+  }
+  let decoded: any;
+  try {
+    const { firebaseAuth } = await import('./server/firebase.ts');
+    decoded = await firebaseAuth().verifyIdToken(token);
+  } catch {
+    return res.status(403).json({ success: false, message: 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً.' });
+  }
+
+  const uid = decoded.uid;
+  const existing = await db.findUserById(uid);
+  if (existing) {
+    return res.json({ success: true, data: existing });
+  }
+
+  const email = decoded.email || undefined;
+  const name = (decoded.name as string) || (email ? email.split('@')[0] : 'مستخدم Google');
+  const newUser = await db.createUserWithId(uid, {
+    name,
+    phone: '',
+    email,
+    password: '',
+    role: 'patient',
+  });
+  await db.logAudit(newUser.id, newUser.name, newUser.role, 'USER_GOOGLE_REGISTER', 'User', newUser.id, 'تسجيل دخول عبر Google (مريض جديد).');
+  res.status(201).json({ success: true, data: newUser });
+}));
+
 // Password Reset — Firebase Auth sends the email/sms
 app.post('/api/auth/forgot-password', wrap(async (req, res) => {
   const { identifier } = req.body;

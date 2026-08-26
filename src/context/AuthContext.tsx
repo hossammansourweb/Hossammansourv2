@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, UserRole } from '../types/index.ts';
 import { api } from '../services/api.ts';
+import { translateGoogleError } from '../services/googleAuth.ts';
+import type { User as FirebaseUser } from 'firebase/auth';
 
 interface AuthContextType {
   user: User | null;
@@ -17,6 +19,8 @@ interface AuthContextType {
   }) => Promise<User>;
   logout: () => void;
   updateUser: (updated: User) => void;
+  loginWithGoogle: () => Promise<User>;
+  loginWithOneTap: (credential: string) => Promise<User>;
   isSuperAdmin: boolean;
   isReceptionist: boolean;
   isContentEditor: boolean;
@@ -42,12 +46,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (res.success && res.data) {
             setUser(res.data);
           } else {
-            await api.signOut();
-            setUser(null);
+            // No Firestore profile yet (e.g. a brand-new Google user). Provision
+            // one automatically. Never sign the Firebase user out — just resolve
+            // the profile. Normal returning users always have a doc, so this is
+            // a no-op for them.
+            const synced = await api.syncGoogleUser().catch(() => null);
+            if (synced?.success && synced.data) {
+              setUser(synced.data);
+            } else {
+              setUser(null);
+            }
           }
         } catch {
-          // Profile fetch failed; keep user signed out of view but sign out auth.
-          await api.signOut().catch(() => {});
           setUser(null);
         }
       } else {
@@ -103,6 +113,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
+  // Shared post-auth step: ensure the Firestore profile exists (created as a
+  // normal patient for new Google users; existing roles are never changed) and
+  // resolve the app user.
+  const finalizeGoogleAuth = async (credential: { user: FirebaseUser }) => {
+    const token = await credential.user.getIdToken();
+    const synced = await api.syncGoogleUser(token).catch(() => null);
+    const me =
+      synced?.success && synced.data
+        ? synced
+        : await api.getMe().catch(() => null);
+    if (me?.success && me.data) {
+      setUser(me.data);
+      return me.data;
+    }
+    throw new Error('فشل تسجيل الدخول عبر Google.');
+  };
+
+  const loginWithGoogle = async (): Promise<User> => {
+    let cred;
+    try {
+      cred = await api.signInWithGoogle();
+    } catch (e: any) {
+      throw new Error(translateGoogleError(e));
+    }
+    return finalizeGoogleAuth(cred);
+  };
+
+  const loginWithOneTap = async (credential: string): Promise<User> => {
+    let cred;
+    try {
+      cred = await api.signInWithGoogleCredential(credential);
+    } catch (e: any) {
+      throw new Error(translateGoogleError(e));
+    }
+    return finalizeGoogleAuth(cred);
+  };
+
   const updateUser = (updated: User) => {
     setUser(updated);
   };
@@ -124,6 +171,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         register,
         logout,
         updateUser,
+        loginWithGoogle,
+        loginWithOneTap,
         isSuperAdmin,
         isReceptionist,
         isContentEditor,
