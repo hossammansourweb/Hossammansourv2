@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import doctorImage from '../assets/images/dr_hossam.jpg';
 import { DoctorProfile, Branch } from '../types/index.ts';
 import { api } from '../services/api.ts';
 import { LoadingSpinner } from '../components/common/LoadingSpinner.tsx';
@@ -64,11 +65,19 @@ export const DoctorProfileView: React.FC<DoctorProfileViewProps> = ({ onNavigate
       {/* Header Profile Banner */}
       <div className="rounded-3xl bg-[#0E3847] text-white p-7 sm:p-10 shadow-lg border border-teal-900/40">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
-          {/* Logo Representation */}
+          {/* Doctor Portrait */}
           <div className="md:col-span-4 flex justify-center">
-            <div className="w-36 h-36 sm:w-44 sm:h-44 rounded-full bg-[#0B3B46] border-4 border-teal-500/30 flex flex-col items-center justify-center text-white shadow-xl">
-              <Stethoscope className="w-14 h-14 text-teal-300 mb-2" />
-              <span className="text-xs font-bold text-teal-200">استشاري معتمد</span>
+            <div className="group relative w-40 h-40 sm:w-52 sm:h-52">
+              <div className="absolute inset-0 rounded-full overflow-hidden border-4 border-white/15 ring-4 ring-[#E05A47]/30 shadow-2xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-90 duration-700">
+                <img
+                  src={doctorImage}
+                  alt={profile.name}
+                  className="w-full h-full object-cover object-top transition-transform duration-500 ease-out group-hover:scale-110"
+                />
+              </div>
+              <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 whitespace-nowrap px-4 py-1.5 rounded-full bg-[#E05A47] text-white text-[11px] sm:text-xs font-bold shadow-lg">
+                استشاري معتمد
+              </div>
             </div>
           </div>
 

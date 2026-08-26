@@ -272,15 +272,25 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onNavig
 
           <div className="fixed inset-y-0 right-0 max-w-sm w-full bg-white dark:bg-[#0E2C33] shadow-2xl flex flex-col justify-between p-5 z-50 animate-in slide-in-from-right duration-200 border-l border-slate-200 dark:border-[#17424C]">
             <div className="space-y-6">
-              {/* Drawer Close Button */}
-              <div className="flex justify-end pb-4 border-b border-slate-100 dark:border-[#17424C]">
+              {/* Brand + Close */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-[#17424C]">
                 <button
                   type="button"
                   onClick={() => setDrawerOpen(false)}
-                  className="w-8 h-8 rounded-full bg-slate-100 dark:bg-[#153E48] text-slate-500 dark:text-slate-300 flex items-center justify-center hover:bg-slate-200 transition-colors"
+                  className="w-9 h-9 rounded-full bg-slate-100 dark:bg-[#153E48] text-slate-500 dark:text-slate-300 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-[#1A4550] transition-colors cursor-pointer"
+                  aria-label="إغلاق القائمة"
                 >
                   <X className="w-4 h-4" />
                 </button>
+                <div className="flex items-center gap-2.5">
+                  <div className="text-right">
+                    <p className="text-sm font-extrabold text-[#0E3847] dark:text-white leading-tight">د. حسام منصور أبوكل</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-300">استشاري جراحة العظام</p>
+                  </div>
+                  <div className="w-10 h-10 rounded-full border border-slate-200 dark:border-[#1F4E5A] bg-white dark:bg-[#123842] overflow-hidden flex items-center justify-center shrink-0">
+                    <img src={logo} alt="شعار العيادة" className="w-full h-full object-contain p-0.5" />
+                  </div>
+                </div>
               </div>
 
               {/* Menu Items List */}
@@ -293,28 +303,25 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onNavig
                       key={item.id}
                       type="button"
                       onClick={() => handleLinkClick(item.id)}
-                      className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-right ${
+                      className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border transition-all text-right ${
                         isActive
                           ? 'border-[#E05A47] bg-[#E05A47]/10 dark:bg-[#E05A47]/20 text-[#E05A47] dark:text-[#f27463] font-bold'
-                          : 'border-slate-200/80 dark:border-[#1A4550] bg-slate-50/50 dark:bg-[#123842] hover:bg-slate-100 dark:hover:bg-[#164450] text-slate-800 dark:text-slate-100'
+                          : 'border-slate-200/80 dark:border-[#1A4550] bg-white dark:bg-[#123842] hover:bg-slate-50 dark:hover:bg-[#164450] text-slate-800 dark:text-slate-100'
                       }`}
                     >
-                      <ChevronLeft className={`w-4 h-4 ${isActive ? 'text-[#E05A47]' : 'text-slate-400'}`} />
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <span className="block text-sm font-bold">{item.label}</span>
-                          <span className="block text-[11px] text-slate-400 dark:text-slate-300">{item.sublabel}</span>
-                        </div>
-                        <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                            isActive
-                              ? 'bg-[#E05A47] text-white shadow-sm'
-                              : 'bg-white dark:bg-[#0E2C33] border border-slate-200 dark:border-[#1F4E5A] text-[#0E3847] dark:text-teal-300'
-                          }`}
-                        >
-                          <Icon className="w-5 h-5" />
-                        </div>
+                      <div className="flex-1 min-w-0 text-right">
+                        <span className="block text-sm font-bold">{item.label}</span>
+                        <span className="block text-[11px] text-slate-400 dark:text-slate-300">{item.sublabel}</span>
                       </div>
+                      <span
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                          isActive
+                            ? 'bg-[#E05A47] text-white shadow-sm'
+                            : 'bg-slate-50 dark:bg-[#0E2C33] text-[#0E3847] dark:text-teal-300'
+                        }`}
+                      >
+                        <Icon className="w-5 h-5" />
+                      </span>
                     </button>
                   );
                 })}
