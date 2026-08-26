@@ -48,6 +48,39 @@ function loadCredentials() {
   );
 }
 
+// DIAGNOSTIC: log the Admin SDK project_id once at cold start. NEVER log the
+// full service account — only the public project_id and client_email (which
+// are not secret). Helps verify the Admin SDK is initialised against the same
+// Firebase project the client uses.
+let _startupLogged = false;
+function logStartupOnce() {
+  if (_startupLogged) return;
+  _startupLogged = true;
+  try {
+    const creds = loadCredentials();
+    const adminProjectId = creds?.project_id || 'unknown';
+    const adminClientEmail = creds?.client_email || 'unknown';
+    // Expected client project id comes from VITE_FIREBASE_PROJECT_ID (build-time)
+    // or the public firebaseClient fallback. We pass the client value through
+    // build env at build time on Vercel; otherwise the bundled fallback is used.
+    const expectedClientProjectId =
+      process.env.VITE_FIREBASE_PROJECT_ID || 'hossammansourweb-9489f';
+    const match = adminProjectId === expectedClientProjectId;
+    console.log(
+      `[firebase-admin] project_id=${adminProjectId} client_email=${adminClientEmail} ` +
+        `expected_client_project_id=${expectedClientProjectId} match=${match}`
+    );
+    if (!match) {
+      console.error(
+        `[firebase-admin] PROJECT MISMATCH: admin=${adminProjectId} client=${expectedClientProjectId}. ` +
+          'Tokens issued for the client project will be rejected by verifyIdToken.'
+      );
+    }
+  } catch (e: any) {
+    console.error(`[firebase-admin] startup log failed: ${e?.message || e}`);
+  }
+}
+
 // firebase-admin uses dynamic requires that the Vercel (@vercel/node / ncc)
 // bundler mangles when inlined, which crashes the function at MODULE LOAD time
 // (Vercel then returns its default text/plain 500). Requiring the SDK through a
@@ -71,6 +104,7 @@ function getFirebase(): any {
     app = existing.length === 0
       ? initializeApp({ credential: cert(loadCredentials()) })
       : existing[0];
+    logStartupOnce();
   }
   return app;
 }

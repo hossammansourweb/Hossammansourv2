@@ -43,6 +43,14 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
+  // DIAGNOSTIC: log safe request metadata on the auth path. Never log the
+  // token value itself — only its presence, length, and a short prefix so we
+  // can confirm the client sent something and roughly what shape it is.
+  const hasAuth = Boolean(authHeader);
+  const tokenLen = token ? token.length : 0;
+  const tokenPrefix = token ? token.slice(0, 4) : '';
+  console.log(`[auth] req path=${req.path} method=${req.method} has_auth=${hasAuth} token_len=${tokenLen} token_prefix=${tokenPrefix}`);
+
   if (!token) {
     return res.status(401).json({ success: false, message: 'يرجى تسجيل الدخول أولاً للوصول إلى هذه الخدمة.' });
   }
@@ -58,7 +66,7 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
       // raw token — just the code/message + a short prefix for cross-referencing.
       const code = innerErr?.code || innerErr?.errorInfo?.code || 'unknown';
       const msg = innerErr?.message || String(innerErr);
-      console.error(`[auth] verifyIdToken failed code=${code} msg=${msg.slice(0, 200)} path=${req.path}`);
+      console.error(`[auth] verifyIdToken FAILED path=${req.path} code=${code} msg=${msg.slice(0, 200)} token_prefix=${tokenPrefix}`);
       throw innerErr;
     }
     // Attach the verified token claims so downstream handlers (e.g.
@@ -92,8 +100,15 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
     }
     // `user` is already typed as User with passwordHash stripped at the boundary.
     req.user = user;
+    // DIAGNOSTIC: confirm success and the token's project/issuer claims so we
+    // can verify the client and Admin SDK are talking to the same Firebase
+    // project. NEVER log the raw token or full claims.
+    const tokProject = (decoded as any)?.firebase?.project_id || (decoded as any)?.iss || 'unknown';
+    const tokSub = (decoded as any)?.sub ? String((decoded as any).sub).slice(0, 8) + '…' : 'unknown';
+    console.log(`[auth] verifyIdToken OK path=${req.path} uid=${decoded.uid} token_project_or_iss=${tokProject} sub_prefix=${tokSub}`);
     next();
   } catch (err) {
+    console.log(`[auth] response 403 path=${req.path} reason=verify_failed`);
     return res.status(403).json({ success: false, message: 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً.' });
   }
 }
@@ -474,6 +489,8 @@ app.post('/api/auth/login', wrap(async (req, res) => {
 
 // Get Current User Profile
 app.get('/api/auth/me', authenticateToken, (req: AuthRequest, res) => {
+  // DIAGNOSTIC: confirm /me reached and the user is populated by middleware.
+  console.log(`[auth] /auth/me reached uid=${req.user?.id || 'none'}`);
   res.json({ success: true, data: req.user });
 });
 
@@ -487,6 +504,16 @@ app.get('/api/auth/me', authenticateToken, (req: AuthRequest, res) => {
 // same way. A successful sign-in here implies a valid Firebase session, so
 // `req.user` is already populated by the middleware.
 app.post('/api/auth/sync', authenticateToken, wrap(async (req: AuthRequest, res) => {
+  // DIAGNOSTIC: confirm /sync reached with a valid middleware-resolved user.
+  const syncDecoded = (req as any).firebaseDecoded || {};
+  const tokEmail = syncDecoded.email || 'none';
+  const tokSignProvider = syncDecoded.firebase?.sign_in_provider || 'unknown';
+  const tokAud = syncDecoded.aud || 'unknown';
+  const tokIss = syncDecoded.iss || 'unknown';
+  console.log(
+    `[auth] /auth/sync reached uid=${req.user!.id} email=${tokEmail} ` +
+      `sign_in_provider=${tokSignProvider} aud_prefix=${String(tokAud).slice(0, 12)} iss=${tokIss}`
+  );
   const uid = req.user!.id;
   const existing = await db.findUserById(uid);
   if (existing) {
