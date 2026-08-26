@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
-import { initOneTap, promptOneTap, cancelOneTap } from '../services/googleAuth.ts';
+import { initOneTap, promptOneTap, cancelOneTap, isOneTapDisabled } from '../services/googleAuth.ts';
 import { Modal } from '../components/common/Modal.tsx';
 import {
   LogIn,
@@ -116,8 +116,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   // Google One Tap — only on the login tab, only when not already authenticated.
+  // Guarded so we don't re-initialize on every render or after a permanent
+  // failure (FedCM disabled, user dismissed, origin not registered, etc.).
   useEffect(() => {
     if (!isOpen || tab !== 'login' || user) return;
+    if (isOneTapDisabled()) return;
     let cancelled = false;
     (async () => {
       const ok = await initOneTap({
@@ -138,10 +141,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           }
         },
         onError: () => {
-          /* One Tap unavailable/blocked — fail silently, no console errors */
+          // One Tap unavailable (GIS failed to load, etc.) — already silent
+          // and the internal `oneTapDisabled` flag is set by promptOneTap.
         },
       });
-      if (ok && !cancelled) promptOneTap();
+      if (ok && !cancelled && !isOneTapDisabled()) promptOneTap();
     })();
     return () => {
       cancelled = true;

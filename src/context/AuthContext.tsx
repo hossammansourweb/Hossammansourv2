@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, UserRole } from '../types/index.ts';
 import { api } from '../services/api.ts';
-import { translateGoogleError } from '../services/googleAuth.ts';
+import { translateGoogleError, resetOneTap } from '../services/googleAuth.ts';
 import type { User as FirebaseUser } from 'firebase/auth';
 
 interface AuthContextType {
@@ -111,6 +111,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     await api.signOut().catch(() => {});
     setUser(null);
+    // Allow One Tap to try again for the next visitor on this device.
+    resetOneTap();
   };
 
   // Shared post-auth step: ensure the Firestore profile exists (created as a

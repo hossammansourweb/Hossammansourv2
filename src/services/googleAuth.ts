@@ -57,6 +57,15 @@ export function getSignInMethodsForEmail(email: string) {
 // ---------- One Tap ----------
 let gisInitialized = false;
 let gisCredentialHandler: ((credential: string) => void) | null = null;
+// Tracks whether One Tap has been permanently disabled for this session
+// (e.g. user dismissed, browser blocked FedCM, origin not registered).
+// Once true, we never call prompt() again — avoids console spam and
+// repeated UI interruptions.
+let oneTapDisabled = false;
+
+export function isOneTapDisabled(): boolean {
+  return oneTapDisabled;
+}
 
 export async function initOneTap(handlers: {
   onCredential: (credential: string) => void;
@@ -79,7 +88,18 @@ export async function initOneTap(handlers: {
   if (!gisInitialized) {
     g.accounts.id.initialize({
       client_id: GOOGLE_CLIENT_ID,
-      use_fedcm_for_prompt: true,
+      // Don't force FedCM — let the browser use it when available and fall
+      // back to the legacy cookie-based flow otherwise. Forcing FedCM
+      // causes hard `NetworkError: retrieving a token` failures in browsers
+      // where FedCM is disabled (site settings, previous user action, or
+      // unsupported environments), which Google logs to the console before
+      // our code can react.
+      use_fedcm_for_prompt: false,
+      // Don't auto-cancel when the user clicks outside — let them dismiss
+      // explicitly so we don't lose the prompt mid-interaction.
+      cancel_on_tap_outside: false,
+      // Intelligent Tracking Prevention (Safari/Firefox) support.
+      itp_support: true,
       callback: (resp: any) => {
         if (resp?.credential) gisCredentialHandler?.(resp.credential);
         else handlers.onError?.('no-credential');
@@ -91,18 +111,72 @@ export async function initOneTap(handlers: {
 }
 
 export function promptOneTap(onNotShown?: () => void) {
+  if (oneTapDisabled) {
+    onNotShown?.();
+    return;
+  }
   const g = (window as any).google;
   if (!g?.accounts?.id) {
     onNotShown?.();
     return;
   }
-  // Call prompt() WITHOUT a status/moment callback to stay FedCM-compliant and
-  // avoid the "uses a deprecated One Tap prompt UI status method" warning.
-  g.accounts.id.prompt();
+  // The moment callback is the ONLY way to learn why One Tap didn't show.
+  // Without it, Google's library logs the failure to the console and our
+  // onError handler is never called — which is exactly what's happening
+  // now. We inspect the reason and disable One Tap for the rest of the
+  // session on any non-recoverable failure.
+  g.accounts.id.prompt((notification: any) => {
+    if (notification.isNotDisplayed?.()) {
+      const reason: string = notification.getNotDisplayedReason?.() || 'unknown';
+      // Non-recoverable for this session: don't keep trying.
+      oneTapDisabled = true;
+      // Known-benign reasons — log at info level only, never as an error.
+      if (
+        reason === 'browser_not_supported' ||
+        reason === 'unregistered_origin' ||
+        reason === 'invalid_client' ||
+        reason === 'fedcm_disabled' ||
+        reason === 'fedcm_unavailable' ||
+        reason === 'missing_client_id' ||
+        reason === 'opt_out' ||
+        reason === 'suppressed_by_user'
+      ) {
+        onNotShown?.();
+        return;
+      }
+      onNotShown?.();
+      return;
+    }
+    if (notification.isSkipped?.()) {
+      const reason: string = notification.getSkippedReason?.() || 'unknown';
+      if (reason === 'user_cancel' || reason === 'tap_outside') {
+        // User explicitly dismissed — stop trying for this session.
+        oneTapDisabled = true;
+      }
+      return;
+    }
+    if (notification.isDismissed?.()) {
+      const reason: string = notification.getDismissedReason?.() || 'unknown';
+      if (
+        reason === 'credential_returned' ||
+        reason === 'cancel_called' ||
+        reason === 'flow_restarted'
+      ) {
+        return;
+      }
+      // User dismissed via UI — don't auto-prompt again this session.
+      oneTapDisabled = true;
+    }
+  });
 }
 
 export function cancelOneTap() {
   (window as any).google?.accounts?.id?.cancel?.();
+}
+
+export function resetOneTap() {
+  // Allow callers (e.g. on logout) to re-enable One Tap for the next session.
+  oneTapDisabled = false;
 }
 
 // ---------- Error translation (Arabic, consistent with app) ----------
