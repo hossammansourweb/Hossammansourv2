@@ -1,23 +1,14 @@
-import {
-  initializeApp,
-  cert,
-  getApps,
-  type App,
-} from 'firebase-admin/app';
-import { initializeFirestore, getFirestore } from 'firebase-admin/firestore';
-import { getAuth } from 'firebase-admin/auth';
 import * as fs from 'fs';
 import * as path from 'path';
 
 // Initialize Firebase Admin SDK once.
 // Credentials are read in this order:
-//   1. FIREBASE_SERVICE_ACCOUNT — JSON string (production / Vercel env var)
-//   2. FIREBASE_SERVICE_ACCOUNT_B64 — base64-encoded JSON (Vercel-friendly, since
-//      multi-line JSON in env vars is awkward). Recommended for Vercel.
-//   3. FIREBASE_SERVICE_ACCOUNT_PATH — path to a JSON file (local dev only)
+//   1. FIREBASE_SERVICE_ACCOUNT_B64 — base64-encoded JSON (Vercel-friendly).
+//   2. FIREBASE_SERVICE_ACCOUNT — raw JSON string.
+//   3. FIREBASE_SERVICE_ACCOUNT_PATH — path to a JSON file (local dev only).
 //   4. ./hossammansourweb-9489f-firebase-adminsdk-*.json if present in CWD.
-const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
 const serviceAccountB64 = process.env.FIREBASE_SERVICE_ACCOUNT_B64;
+const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
 const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
 const defaultServiceAccountPath = path.resolve(
   process.cwd(),
@@ -57,39 +48,52 @@ function loadCredentials() {
   );
 }
 
-let app: App | undefined;
-let dbInstance: ReturnType<typeof initializeFirestore> | undefined;
+// firebase-admin uses dynamic requires that the Vercel (@vercel/node / ncc)
+// bundler mangles when inlined, which crashes the function at MODULE LOAD time
+// (Vercel then returns its default text/plain 500). Requiring the SDK through a
+// non-statically-resolvable specifier forces the bundler to keep it external so
+// it is loaded from node_modules at runtime — exactly how it runs in Node.
+function loadAdminModule(subpath: string): any {
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  const spec = ['firebase-admin', subpath].filter(Boolean).join('/');
+  // tslint:disable-next-line:no-var-requires
+  return require(spec);
+}
 
-function getFirebase(): App {
+let app: any;
+let dbInstance: any;
+
+function getFirebase(): any {
   if (!app) {
+    const adminApp = loadAdminModule('app');
+    const { initializeApp, cert, getApps } = adminApp;
     const existing = getApps();
-    app = existing.length === 0 ? initializeApp({ credential: cert(loadCredentials()) }) : existing[0];
+    app = existing.length === 0
+      ? initializeApp({ credential: cert(loadCredentials()) })
+      : existing[0];
   }
   return app;
 }
 
-export function getFirebaseApp(): App {
+export function getFirebaseApp(): any {
   return getFirebase();
 }
 
-export const firebaseAuth = () => getAuth(getFirebase());
+export const firebaseAuth = () => {
+  const { getAuth } = loadAdminModule('auth');
+  return getAuth(getFirebase());
+};
 
 /**
  * Returns the Firestore instance with `ignoreUndefinedProperties: true` so that
- * optional fields (e.g. `gender`, `age`, `email`) can be omitted from write
- * payloads without raising
- *   "Cannot use 'undefined' as a Firestore value (found in field ...)"
- * For new apps we use `initializeFirestore` (which accepts settings); for apps
- * that were already initialized elsewhere (HMR, tests) we fall back to the
- * default `getFirestore` and apply the same settings at runtime.
+ * optional fields can be omitted from write payloads without raising
+ * "Cannot use 'undefined' as a Firestore value".
  */
 export const db = () => {
   if (dbInstance) return dbInstance;
+  const adminFirestore = loadAdminModule('firestore');
+  const { initializeFirestore, getFirestore } = adminFirestore;
   try {
-    // firebase-admin v14's `FirestoreSettings` type doesn't include
-    // `ignoreUndefinedProperties` (it lives on the underlying
-    // @google-cloud/firestore type), so we initialize with no settings and
-    // apply it via `settings()` afterwards — that method's type is wider.
     dbInstance = initializeFirestore(getFirebase(), {});
     try {
       dbInstance.settings({ ignoreUndefinedProperties: true });
@@ -97,8 +101,6 @@ export const db = () => {
       // Settings can only be set once; ignore if already configured.
     }
   } catch {
-    // App already initialized — get the default instance and apply the same
-    // settings so the rest of the code path behaves identically.
     dbInstance = getFirestore(getFirebase());
     try {
       dbInstance.settings({ ignoreUndefinedProperties: true });

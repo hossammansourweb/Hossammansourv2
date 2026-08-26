@@ -22,11 +22,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return (app as any)(req, res);
   } catch (err: any) {
     // Log server-side only; never leak secrets/stack to the client.
-    console.error('[api] handler failed to load/execute:', err?.message || err);
+    console.error('[api] handler failed to load/execute:', err?.message || err, err?.stack);
     if (!res.headersSent) {
       res.status(500).json({
         success: false,
-        error: 'Internal server error. Check server logs for details.',
+        error: 'Internal server error.',
+        detail: err?.message || 'Unknown error',
       });
     }
   }
