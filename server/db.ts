@@ -314,8 +314,11 @@ class ClinicDatabase {
   // Admin: every prescription across all patients, joined with the owner's
   // profile so the dashboard can show who uploaded it.
   public async getAllPrescriptions(): Promise<AdminPrescription[]> {
-    const snap = await firestore().collectionGroup(COL.prescriptions).orderBy('createdAt', 'desc').get();
+    const snap = await firestore().collectionGroup(COL.prescriptions).get();
     const items = snap.docs.map(d => this.toPrescription(d.id, d.data() as any));
+    // Sort newest-first in memory to avoid requiring a composite
+    // COLLECTION_GROUP_DESC index in Firestore.
+    items.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     const userIds = Array.from(new Set(items.map(i => i.userId)));
     const users = await Promise.all(userIds.map(uid => this.findUserById(uid)));
     const userMap = new Map(users.filter(Boolean).map(u => [u!.id, u!]));
