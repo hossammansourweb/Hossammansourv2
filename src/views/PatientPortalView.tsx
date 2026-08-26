@@ -8,7 +8,7 @@ import { CalendarExportButton } from '../components/common/CalendarExportButton.
 import { LoadingSpinner } from '../components/common/LoadingSpinner.tsx';
 import { EmptyState } from '../components/common/EmptyState.tsx';
 import { Modal } from '../components/common/Modal.tsx';
-import { ToastProvider, useToast } from '../components/admin/ui.tsx';
+import { useToast } from '../components/common/Toast.tsx';
 import {
   Calendar,
   Clock,
@@ -54,7 +54,8 @@ function getDateParts(dateStr: string) {
 }
 
 export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate, onOpenAuth, initialTab }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
+  const toast = useToast();
 
   const [activeTab, setActiveTab] = useState<'appointments' | 'records' | 'profile' | 'lookup' | 'prescriptions'>(
     initialTab || (user ? 'appointments' : 'lookup')
@@ -161,16 +162,17 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
         setCancelModalOpen(false);
         setTargetApt(null);
         setCancelReason('');
+        toast.push({ kind: 'success', title: 'تم إلغاء الموعد', description: 'تم إلغاء الحجز بنجاح.' });
         if (user) {
           fetchPatientData();
         } else if (lookedUpApt) {
           setLookedUpApt(prev => (prev ? { ...prev, status: 'cancelled' } : null));
         }
       } else {
-        alert(res.message || 'تعذر إلغاء الحجز.');
+        toast.push({ kind: 'error', title: 'تعذر إلغاء الحجز', description: res.message || 'يرجى المحاولة مرة أخرى.' });
       }
     } catch (err: any) {
-      alert(err.message || 'حدث خطأ أثناء الإلغاء.');
+      toast.push({ kind: 'error', title: 'فشل الإلغاء', description: err.message || 'حدث خطأ أثناء الإلغاء.' });
     } finally {
       setCancelling(false);
     }
@@ -178,13 +180,30 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
 
   const handleProfileSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    setProfSuccess('تم حفظ التعديلات بنجاح في ملفك الشخصي.');
-    setTimeout(() => setProfSuccess(null), 3000);
+    if (!user) return;
+    setProfSuccess(null);
+    try {
+      const res = await api.updatePatientProfile({
+        name: profName.trim(),
+        phone: profPhone.trim(),
+        email: profEmail.trim() || undefined,
+        gender: profGender,
+        age: profAge ? parseInt(profAge, 10) : undefined,
+      });
+      if (res.success && res.data) {
+        updateUser(res.data);
+        setProfSuccess('تم حفظ التعديلات بنجاح في ملفك الشخصي.');
+        setTimeout(() => setProfSuccess(null), 3000);
+      } else {
+        toast.push({ kind: 'error', title: 'فشل الحفظ', description: res.message || 'تعذر تحديث البيانات.' });
+      }
+    } catch (err: any) {
+      toast.push({ kind: 'error', title: 'فشل الحفظ', description: err.message || 'حدث خطأ أثناء حفظ البيانات.' });
+    }
   };
 
   return (
-    <ToastProvider>
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-9 space-y-6 sm:space-y-8 text-right" dir="rtl">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-9 space-y-6 sm:space-y-8 text-right" dir="rtl">
 
         {/* ============ WELCOME / HEADER ============ */}
         {user ? (
@@ -687,7 +706,6 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
           </div>
         </Modal>
       </div>
-    </ToastProvider>
   );
 };
 

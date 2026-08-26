@@ -180,18 +180,32 @@ export const api = {
   resolveAuthEmail: (identifier: string) => resolveAuthEmail(identifier),
 
   // ---------- REST API surface (unchanged from before) ----------
-  getClinicInfo: () =>
-    request<{
-      success: boolean;
-      data: {
-        branches: Branch[];
-        services: MedicalService[];
-        doctorProfile: DoctorProfile;
-        reviews: Review[];
-        faqs: FAQItem[];
-        announcements: Announcement[];
-      };
-    }>('/public/clinic-info'),
+  getClinicInfo: (() => {
+    let cache: { data: any; expires: number } | null = null;
+    const ttl = 60_000; // 60s — clinic content changes rarely within a session
+    return () => {
+      const now = Date.now();
+      if (cache && cache.expires > now) {
+        return Promise.resolve({ success: true, data: cache.data });
+      }
+      return request<{
+        success: boolean;
+        data: {
+          branches: Branch[];
+          services: MedicalService[];
+          doctorProfile: DoctorProfile;
+          reviews: Review[];
+          faqs: FAQItem[];
+          announcements: Announcement[];
+        };
+      }>('/public/clinic-info').then(res => {
+        if (res.success && res.data) {
+          cache = { data: res.data, expires: Date.now() + ttl };
+        }
+        return res;
+      });
+    };
+  })(),
 
   getAvailableSlots: (branchId: string, serviceId: string, date: string) =>
     request<{ success: boolean; data: AvailableSlot[] }>(

@@ -1,15 +1,35 @@
+// On Vercel, environment variables are injected by the platform — `dotenv/config`
+// is a no-op there and is only useful for local `npm run dev`.
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
 import { db } from './server/db.ts';
 import { User, UserRole, Prescription, AdminPrescription } from './src/types/index.ts';
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json({ limit: '20mb' }));
-app.use(express.urlencoded({ extended: true, limit: '20mb' }));
+// Vercel serverless functions cap request bodies at 4.5 MB. Capping the JSON
+// parser at 4 MB keeps the parser inside that limit while still supporting
+// base64 prescription images. Anything larger should use a direct-to-storage
+// upload flow (out of scope for this audit).
+const BODY_LIMIT = process.env.VERCEL ? '4mb' : '20mb';
+app.use(express.json({ limit: BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT }));
+
+// Lightweight CORS for safety. Same-origin requests don't need it, but it
+// prevents issues if the API is ever called from a different Vercel preview
+// domain or a custom domain.
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
 
 // Custom Request Interface with User
 export interface AuthRequest extends Request {
@@ -1357,6 +1377,8 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 // ----------------------------------------------------
 
 async function startServer() {
+  // Lazy-import Vite so production serverless bundles don't pull it in.
+  const { createServer: createViteServer } = await import('vite');
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1376,7 +1398,21 @@ async function startServer() {
   });
 }
 
-startServer().catch(err => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+// Only auto-start when this file is the actual entry point. When imported by
+// the Vercel serverless handler (`api/index.ts`), exporting `app` is enough.
+export { app };
+
+const isDirectRun =
+  // Node ESM entry detection
+  (typeof process !== 'undefined' &&
+    process.argv[1] &&
+    /server\.(ts|js)$/.test(process.argv[1])) ||
+  // Vercel should never reach this branch — guard explicitly.
+  !process.env.VERCEL;
+
+if (isDirectRun) {
+  startServer().catch(err => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  });
+}

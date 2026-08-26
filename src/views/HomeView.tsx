@@ -11,6 +11,8 @@ import {
 import { api } from '../services/api.ts';
 import { LoadingSpinner } from '../components/common/LoadingSpinner.tsx';
 import { Modal } from '../components/common/Modal.tsx';
+import { EmptyState } from '../components/common/EmptyState.tsx';
+import { useToast } from '../components/common/Toast.tsx';
 import { SocialSection } from '../components/common/SocialSection.tsx';
 import {
   Calendar,
@@ -48,6 +50,7 @@ interface HomeViewProps {
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWithService }) => {
+  const toast = useToast();
   const [data, setData] = useState<{
     branches: Branch[];
     services: MedicalService[];
@@ -58,6 +61,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
   } | null>(null);
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [openFaqId, setOpenFaqId] = useState<string | null>(null);
 
   // Review submission modal state
@@ -78,9 +82,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
           if (res.data.faqs.length > 0) {
             setOpenFaqId(res.data.faqs[0].id);
           }
+        } else {
+          setLoadError(true);
         }
       } catch (err) {
         console.error('Error fetching clinic info:', err);
+        setLoadError(true);
       } finally {
         setLoading(false);
       }
@@ -106,7 +113,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
         setRevComment('');
       }, 2000);
     } catch (e: any) {
-      alert(e.message || 'حدث خطأ أثناء إرسال التقييم.');
+      toast.push({ kind: 'error', title: 'تعذر إرسال التقييم', description: e.message || 'حدث خطأ أثناء إرسال التقييم.' });
     } finally {
       setRevSubmitting(false);
     }
@@ -129,8 +136,21 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
     }
   };
 
-  if (loading || !data) {
+  if (loading) {
     return <LoadingSpinner message="جاري تجهيز العيادة..." />;
+  }
+
+  if (loadError || !data) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-20" dir="rtl">
+        <EmptyState
+          icon={AlertCircle}
+          title="تعذر تحميل بيانات العيادة"
+          description="حدث خطأ أثناء تحميل المعلومات، يرجى المحاولة مرة أخرى."
+          action={{ label: 'إعادة المحاولة', onClick: () => window.location.reload() }}
+        />
+      </div>
+    );
   }
 
   const activeAnnouncement = data.announcements?.find(a => a.isActive);

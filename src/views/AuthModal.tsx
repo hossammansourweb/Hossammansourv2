@@ -98,26 +98,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  // Quick 1-click test credentials for quick evaluation
-  const handleQuickLogin = async (id: string, pass: string) => {
-    setIdentifier(id);
-    setPassword(pass);
-    setErrorMsg(null);
-    setLoading(true);
-    try {
-      await login(id, pass);
-      setSuccessMsg('تم تسجيل الدخول بنجاح!');
-      setTimeout(() => {
-        onClose();
-        if (onSuccess) onSuccess();
-      }, 400);
-    } catch (err: any) {
-      setErrorMsg(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleGoogle = async () => {
     setErrorMsg(null);
     setGLoading(true);
@@ -300,29 +280,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               >
                 ليس لديك حساب؟ إنشاء حساب جديد ←
               </button>
-            </div>
-
-            {/* Quick Staff Login helpers for testing */}
-            <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
-              <span className="text-[11px] text-slate-400 block mb-2 font-medium">
-                حسابات تجريبية سريعة (للمعاينة):
-              </span>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('admin@clinic.com', 'admin123')}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 text-[11px] font-bold"
-                >
-                  دخول المدير (د. حسام)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('reception@clinic.com', 'recep123')}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 text-[11px] font-bold"
-                >
-                  دخول الاستقبال
-                </button>
-              </div>
             </div>
           </form>
         ) : (

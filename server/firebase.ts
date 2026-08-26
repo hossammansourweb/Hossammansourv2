@@ -10,9 +10,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 // Initialize Firebase Admin SDK once.
-// Credentials are read from FIREBASE_SERVICE_ACCOUNT (JSON string) in production,
-// or from the local service-account JSON file during development.
-const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
+// Credentials are read in this order:
+//   1. FIREBASE_SERVICE_ACCOUNT — JSON string (production / Vercel env var)
+//   2. FIREBASE_SERVICE_ACCOUNT_B64 — base64-encoded JSON (Vercel-friendly, since
+//      multi-line JSON in env vars is awkward). Recommended for Vercel.
+//   3. FIREBASE_SERVICE_ACCOUNT_PATH — path to a JSON file (local dev only)
+//   4. ./hossammansourweb-9489f-firebase-adminsdk-*.json if present in CWD.
+const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
+const serviceAccountB64 = process.env.FIREBASE_SERVICE_ACCOUNT_B64;
 const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
 const defaultServiceAccountPath = path.resolve(
   process.cwd(),
@@ -20,9 +25,16 @@ const defaultServiceAccountPath = path.resolve(
 );
 
 function loadCredentials() {
-  if (serviceAccount) {
+  if (serviceAccountB64) {
     try {
-      return JSON.parse(serviceAccount);
+      return JSON.parse(Buffer.from(serviceAccountB64, 'base64').toString('utf8'));
+    } catch {
+      throw new Error('FIREBASE_SERVICE_ACCOUNT_B64 is set but is not valid base64-encoded JSON.');
+    }
+  }
+  if (serviceAccountRaw) {
+    try {
+      return JSON.parse(serviceAccountRaw);
     } catch {
       throw new Error('FIREBASE_SERVICE_ACCOUNT is set but not valid JSON.');
     }
@@ -41,7 +53,7 @@ function loadCredentials() {
     }
   }
   throw new Error(
-    'Firebase Admin credentials missing. Set FIREBASE_SERVICE_ACCOUNT (JSON) or FIREBASE_SERVICE_ACCOUNT_PATH.'
+    'Firebase Admin credentials missing. Set FIREBASE_SERVICE_ACCOUNT (JSON), FIREBASE_SERVICE_ACCOUNT_B64 (base64), or FIREBASE_SERVICE_ACCOUNT_PATH.'
   );
 }
 

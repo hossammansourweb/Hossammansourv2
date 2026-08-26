@@ -19,6 +19,7 @@ import { PoliciesView } from './views/PoliciesView.tsx';
 import { PatientPortalView } from './views/PatientPortalView.tsx';
 import { AdminApp, AdminPageKey } from './components/admin/shell.tsx';
 import { AuthModal } from './views/AuthModal.tsx';
+import { ToastProvider } from './components/common/Toast.tsx';
 
 /* ============================================================
    URL-based routing — replaces the old in-memory useState approach.
@@ -288,7 +289,9 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <MainApp />
+        <ToastProvider>
+          <MainApp />
+        </ToastProvider>
       </AuthProvider>
     </ThemeProvider>
   );

@@ -114,7 +114,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onNavig
 
             {/* Desktop Navigation Links */}
             <nav className="hidden lg:flex items-center gap-1 xl:gap-2">
-              {navMenuItems.slice(0, 5).map(link => {
+              {navMenuItems.map(link => {
                 const isActive = currentView === link.id;
                 return (
                   <button
