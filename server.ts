@@ -49,7 +49,18 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
 
   try {
     const { firebaseAuth } = await import('./server/firebase');
-    const decoded = await firebaseAuth().verifyIdToken(token);
+    let decoded;
+    try {
+      decoded = await firebaseAuth().verifyIdToken(token);
+    } catch (innerErr: any) {
+      // Surface the actual Admin SDK error so we can diagnose 403s in Vercel
+      // logs (Google One Tap and other fresh-id-token flows). Never log the
+      // raw token — just the code/message + a short prefix for cross-referencing.
+      const code = innerErr?.code || innerErr?.errorInfo?.code || 'unknown';
+      const msg = innerErr?.message || String(innerErr);
+      console.error(`[auth] verifyIdToken failed code=${code} msg=${msg.slice(0, 200)} path=${req.path}`);
+      throw innerErr;
+    }
     // Attach the verified token claims so downstream handlers (e.g.
     // /api/auth/sync) can read email/name without re-verifying.
     (req as any).firebaseDecoded = decoded;

@@ -119,12 +119,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // normal patient for new Google users; existing roles are never changed) and
   // resolve the app user.
   const finalizeGoogleAuth = async (credential: { user: FirebaseUser }) => {
-    const token = await credential.user.getIdToken();
-    const synced = await api.syncGoogleUser(token).catch(() => null);
-    const me =
-      synced?.success && synced.data
-        ? synced
-        : await api.getMe().catch(() => null);
+    // Force a fresh ID token (true = bypass cache and re-sign on the server).
+    // The very first token returned right after signInWithCredential can race
+    // with the auth state observer; forcing a refresh guarantees a token the
+    // Admin SDK on the server is guaranteed to accept.
+    const token = await credential.user.getIdToken(true);
+    if (!token) {
+      throw new Error('تعذر الحصول على رمز الدخول من Google.');
+    }
+    // Prefer the explicit fresh token for the sync call. Pass it through the
+    // module-level currentToken too so the fallback getMe() uses the same
+    // (just-issued) credential.
+    const synced = await api.syncGoogleUser(token).catch(err => {
+      console.warn('[auth] syncGoogleUser failed:', err?.message || err);
+      return null;
+    });
+    let me = synced?.success && synced.data ? synced : null;
+    if (!me) {
+      // Sync failed (likely the user already has a Firestore profile, which
+      // is the normal returning-Google-user path). Fall back to /auth/me.
+      me = await api.getMe().catch(err => {
+        console.warn('[auth] getMe failed:', err?.message || err);
+        return null;
+      });
+    }
     if (me?.success && me.data) {
       setUser(me.data);
       return me.data;

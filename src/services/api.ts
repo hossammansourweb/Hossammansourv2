@@ -92,9 +92,21 @@ async function getAuthHeader(): Promise<Record<string, string>> {
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  // If the caller passed an explicit Authorization header (e.g. a freshly
+  // minted Firebase ID token from the post-sign-in step), use it as-is and
+  // skip the cached `currentToken` lookup. This avoids a race where the
+  // module-level `currentToken` is still stale (the `onAuthStateChanged`
+  // observer hasn't completed its own `getIdToken()` yet) and would otherwise
+  // shadow the just-issued token.
+  const callerAuth = (options.headers as Record<string, string> | undefined)?.Authorization;
+  const baseHeaders: Record<string, string> = callerAuth
+    ? { 'Content-Type': 'application/json', Authorization: callerAuth }
+    : {
+        'Content-Type': 'application/json',
+        ...(await getAuthHeader()),
+      };
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(await getAuthHeader()),
+    ...baseHeaders,
     ...(options.headers as Record<string, string> | undefined),
   };
 
