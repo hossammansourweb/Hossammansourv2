@@ -11,6 +11,7 @@ import {
 import { api } from '../services/api.ts';
 import { LoadingSpinner } from '../components/common/LoadingSpinner.tsx';
 import { Modal } from '../components/common/Modal.tsx';
+import { SocialSection } from '../components/common/SocialSection.tsx';
 import {
   Calendar,
   CheckCircle2,
@@ -556,6 +557,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onOpenBookingWit
           })}
         </div>
       </section>
+
+      {/* 8b. Social Media / Contact Us — sits directly below FAQ */}
+      <SocialSection />
 
       {/* 9. Clean CTA Bottom Banner */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
