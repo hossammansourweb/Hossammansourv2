@@ -86,9 +86,16 @@ export const firebaseAuth = () => getAuth(getFirebase());
 export const db = () => {
   if (dbInstance) return dbInstance;
   try {
-    dbInstance = initializeFirestore(getFirebase(), {
-      ignoreUndefinedProperties: true,
-    });
+    // firebase-admin v14's `FirestoreSettings` type doesn't include
+    // `ignoreUndefinedProperties` (it lives on the underlying
+    // @google-cloud/firestore type), so we initialize with no settings and
+    // apply it via `settings()` afterwards — that method's type is wider.
+    dbInstance = initializeFirestore(getFirebase(), {});
+    try {
+      dbInstance.settings({ ignoreUndefinedProperties: true });
+    } catch {
+      // Settings can only be set once; ignore if already configured.
+    }
   } catch {
     // App already initialized — get the default instance and apply the same
     // settings so the rest of the code path behaves identically.

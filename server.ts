@@ -50,7 +50,15 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
   try {
     const { firebaseAuth } = await import('./server/firebase.ts');
     const decoded = await firebaseAuth().verifyIdToken(token);
-    let user = await db.findUserById(decoded.uid);
+    // findUserById returns UserWithPassword (includes the server-only
+    // passwordHash). The session only ever needs the public User shape, so
+    // we strip the hash here at the boundary and type the local as User.
+    let user: User | null = null;
+    const found = await db.findUserById(decoded.uid);
+    if (found) {
+      const { passwordHash: _omit, ...safe } = found;
+      user = safe as User;
+    }
     if (!user) {
       // Self-heal: a valid Firebase session exists but the Firestore profile
       // doc is missing (e.g. a previous Google/external login whose sync failed,
@@ -68,8 +76,8 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
         role: 'patient',
       });
     }
-    const { passwordHash: _omit, ...safeUser } = user as any;
-    req.user = safeUser as User;
+    // `user` is already typed as User with passwordHash stripped at the boundary.
+    req.user = user;
     next();
   } catch (err) {
     return res.status(403).json({ success: false, message: 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً.' });
