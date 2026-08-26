@@ -67,6 +67,10 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
       const code = innerErr?.code || innerErr?.errorInfo?.code || 'unknown';
       const msg = innerErr?.message || String(innerErr);
       console.error(`[auth] verifyIdToken FAILED path=${req.path} code=${code} msg=${msg.slice(0, 200)} token_prefix=${tokenPrefix}`);
+      // DIAGNOSTIC: also surface the error code in the response body so it
+      // shows up in the browser Network tab without needing to dig through
+      // Vercel function logs. Temporary — remove once root cause is fixed.
+      (req as any)._diag = { code, msg: msg.slice(0, 200) };
       throw innerErr;
     }
     // Attach the verified token claims so downstream handlers (e.g.
@@ -109,7 +113,14 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
     next();
   } catch (err) {
     console.log(`[auth] response 403 path=${req.path} reason=verify_failed`);
-    return res.status(403).json({ success: false, message: 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً.' });
+    const diag = (req as any)._diag;
+    return res.status(403).json({
+      success: false,
+      message: 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً.',
+      // DIAGNOSTIC: surface Admin SDK error code in the response so it appears
+      // in the browser Network tab. NEVER include token/cookie/secrets.
+      _diag: diag || { code: 'unknown', msg: 'verifyIdToken threw without diagnostic' },
+    });
   }
 }
 
@@ -391,6 +402,42 @@ app.post('/api/public/reviews/submit', wrap(async (req, res) => {
 // ----------------------------------------------------
 // 2. AUTHENTICATION ROUTES (Firebase Auth)
 // ----------------------------------------------------
+
+// DIAGNOSTIC: unauthenticated endpoint that returns the Firebase Admin
+// project's project_id and compares to the expected client project_id. Lets
+// us verify the two match without having to dig through Vercel function
+// logs. Safe — only public identifiers are returned.
+app.get('/api/_diag/firebase', (req, res) => {
+  try {
+    const { getFirebaseApp } = require('./server/firebase') as typeof import('./server/firebase');
+    const app = getFirebaseApp();
+    const adminProjectId =
+      // firebase-admin v14 exposes options on the app instance.
+      (app as any)?.options?.projectId ||
+      (app as any)?.options?.credential?.projectId ||
+      'unknown';
+    const expectedClientProjectId =
+      process.env.VITE_FIREBASE_PROJECT_ID || 'hossammansourweb-9489f';
+    res.json({
+      success: true,
+      data: {
+        admin_project_id: adminProjectId,
+        expected_client_project_id: expectedClientProjectId,
+        match: adminProjectId === expectedClientProjectId,
+        // Surface the runtime node version + Vercel region for cross-reference.
+        node: process.version,
+        region: process.env.VERCEL_REGION || 'local',
+        ts: new Date().toISOString(),
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({
+      success: false,
+      message: e?.message || 'diag failed',
+      code: e?.code,
+    });
+  }
+});
 
 // Register Patient Account — creates Firebase Auth user + Firestore profile doc
 app.post('/api/auth/register', wrap(async (req, res) => {
