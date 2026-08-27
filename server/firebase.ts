@@ -81,24 +81,22 @@ function logStartupOnce() {
   }
 }
 
-// firebase-admin uses dynamic requires that the Vercel (@vercel/node / ncc)
-// bundler mangles when inlined, which crashes the function at MODULE LOAD time
-// (Vercel then returns its default text/plain 500). Requiring the SDK through a
-// non-statically-resolvable specifier forces the bundler to keep it external so
-// it is loaded from node_modules at runtime — exactly how it runs in Node.
-function loadAdminModule(subpath: string): any {
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
-  const spec = ['firebase-admin', subpath].filter(Boolean).join('/');
-  // tslint:disable-next-line:no-var-requires
-  return require(spec);
-}
+// Static requires so esbuild's `--packages=external` flag (and Vercel's
+// serverless bundler) can properly externalize `firebase-admin` and include
+// it in the deployment. Dynamic `require(spec)` with string concatenation
+// is not statically analyzable, so esbuild fails to externalize the package
+// and Vercel ends up trying to resolve `firebase-admin/lib/auth/index.js`
+// at runtime — which is not present in the serverless bundle, producing
+// `MODULE_NOT_FOUND` and a 403 from the auth middleware.
+const adminApp = require('firebase-admin/app');
+const adminAuth = require('firebase-admin/auth');
+const adminFirestore = require('firebase-admin/firestore');
 
 let app: any;
 let dbInstance: any;
 
 function getFirebase(): any {
   if (!app) {
-    const adminApp = loadAdminModule('app');
     const { initializeApp, cert, getApps } = adminApp;
     const existing = getApps();
     app = existing.length === 0
@@ -114,7 +112,7 @@ export function getFirebaseApp(): any {
 }
 
 export const firebaseAuth = () => {
-  const { getAuth } = loadAdminModule('auth');
+  const { getAuth } = adminAuth;
   return getAuth(getFirebase());
 };
 
@@ -125,7 +123,6 @@ export const firebaseAuth = () => {
  */
 export const db = () => {
   if (dbInstance) return dbInstance;
-  const adminFirestore = loadAdminModule('firestore');
   const { initializeFirestore, getFirestore } = adminFirestore;
   try {
     dbInstance = initializeFirestore(getFirebase(), {});

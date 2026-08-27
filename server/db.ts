@@ -1,21 +1,6 @@
 import { db as firestore, firebaseAuth } from './firebase';
 import type { Timestamp, Query } from 'firebase-admin/firestore';
-
-// firebase-admin must NOT be statically imported: Vercel's bundler (ncc) inlines
-// it and its dynamic requires break at MODULE-LOAD time, crashing the whole
-// serverless function (Vercel then returns a text/plain 500). We require it
-// lazily via a non-statically-resolvable spec so the bundler keeps it external
-// (loaded from node_modules at runtime, where it works normally).
-const faFirestoreMod = (() => {
-  let mod: any;
-  return () => {
-    if (!mod) {
-      const spec = ['firebase-admin', 'firestore'].join('/');
-      mod = require(spec);
-    }
-    return mod;
-  };
-})();
+const faFirestore = require('firebase-admin/firestore');
 import {
   User,
   Branch,
@@ -34,8 +19,8 @@ import {
   AdminPrescription,
 } from '../src/types';
 
-const timestamp = () => faFirestoreMod().FieldValue.serverTimestamp();
-const writeAny = faFirestoreMod().FieldValue as any;
+const timestamp = () => faFirestore.FieldValue.serverTimestamp();
+const writeAny = faFirestore.FieldValue as any;
 
 interface UserWithPassword extends User {
   passwordHash: string;
@@ -69,7 +54,7 @@ function stripUndefined<T extends Record<string, any>>(obj: T): Partial<T> {
 
 function toIso(value: any): string {
   if (!value) return new Date().toISOString();
-  if (value instanceof faFirestoreMod().Timestamp) {
+  if (value instanceof faFirestore.Timestamp) {
     return value.toDate().toISOString();
   }
   if (value instanceof Date) {
@@ -81,11 +66,11 @@ function toIso(value: any): string {
 
 function ts(value: any): Timestamp | null {
   if (!value) return null;
-  if (value instanceof faFirestoreMod().Timestamp) return value;
-  if (value instanceof Date) return faFirestoreMod().Timestamp.fromDate(value);
+  if (value instanceof faFirestore.Timestamp) return value;
+  if (value instanceof Date) return faFirestore.Timestamp.fromDate(value);
   if (typeof value === 'string') {
     const d = new Date(value);
-    if (!isNaN(d.getTime())) return faFirestoreMod().Timestamp.fromDate(d);
+    if (!isNaN(d.getTime())) return faFirestore.Timestamp.fromDate(d);
   }
   return null;
 }
