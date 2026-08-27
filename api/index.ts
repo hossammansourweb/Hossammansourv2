@@ -14,10 +14,26 @@
 //
 //   3. The bundle is CJS, so we bridge via `createRequire` from the ESM
 //      function entry.
+
+// CRITICAL: Vercel's bundler only traces static imports/requires in
+// `api/index.ts` to discover the function's npm dependencies. The pre-built
+// CJS bundle (`api/_server.cjs`) is opaque to it — its `require("firebase-admin/...")`
+// calls are inside a compiled file, so Vercel never detects `firebase-admin`
+// as a function dependency and does not include it in the function's
+// `node_modules`. The static `require()` calls then crash at module-load
+// time (before any try/catch in route handlers can catch them), and Vercel
+// returns its default text/plain 500 for every route.
+//
+// Referencing the package here — at the top of the function entry — makes
+// Vercel see `firebase-admin` as a dependency and externalize it (loaded
+// from `node_modules` at runtime, not bundled). This is the only place
+// Vercel's bundler will look.
+require('firebase-admin/app');
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createRequire } from 'module';
 
-const require = createRequire(import.meta.url);
+const requireCjs = createRequire(import.meta.url);
 // `api/_server.cjs` is produced by `esbuild server.ts --format=cjs` in the
 // build script. The leading underscore tells Vercel to ignore it as a
 // function (only files without a leading underscore in `api/` are
@@ -25,7 +41,7 @@ const require = createRequire(import.meta.url);
 // function guarantees it is present in the Vercel function's filesystem
 // and avoids any ambiguity with the `server/` source directory at the
 // project root.
-const { app } = require('./_server.cjs');
+const { app } = requireCjs('./_server.cjs');
 
 export default function handler(req: VercelRequest, res: VercelResponse) {
   // Express expects (req, res, next). Vercel provides a compatible pair.
