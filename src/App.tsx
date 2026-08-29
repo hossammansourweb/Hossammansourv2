@@ -259,8 +259,8 @@ function MainApp() {
         )}
       </main>
 
-      {/* Medical Platform Footer */}
-      {currentView !== 'admin' && <Footer onNavigate={navigate} />}
+      {/* Medical Platform Footer — hidden on /booking, /services, /patient-portal */}
+      {currentView !== 'admin' && currentView !== 'booking' && currentView !== 'services' && currentView !== 'patient-portal' && <Footer onNavigate={navigate} />}
 
       {/* Mobile Fixed Bottom Bar */}
       {currentView !== 'admin' && (
