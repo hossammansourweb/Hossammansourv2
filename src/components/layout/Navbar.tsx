@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext.tsx';
 import { useTheme } from '../../context/ThemeContext.tsx';
+import { usePWA } from '../../pwa/PWAInstall.tsx';
 import logo from '../../assets/images/logo.png';
 import {
   Calendar,
@@ -11,6 +12,7 @@ import {
   Sun,
   Menu,
   X,
+  Download,
   Stethoscope,
   Phone,
   ShieldCheck,
@@ -34,6 +36,7 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onNavigatePatient, onOpenAuth }) => {
   const { user, logout, isStaff } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { canInstall, isInstalled, promptInstall } = usePWA();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -330,6 +333,20 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onNavig
 
             {/* Drawer Bottom Actions */}
             <div className="pt-4 border-t border-slate-100 dark:border-[#17424C] space-y-3">
+              {canInstall && !isInstalled && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDrawerOpen(false);
+                    promptInstall();
+                  }}
+                  className="w-full py-3 px-4 rounded-xl bg-[#0E3847] dark:bg-teal-700 hover:bg-[#092631] dark:hover:bg-teal-600 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-md active:scale-[0.98] transition-all cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>تثبيت التطبيق</span>
+                </button>
+              )}
+
               {user ? (
                 <div className="space-y-2">
                   {isStaff && (

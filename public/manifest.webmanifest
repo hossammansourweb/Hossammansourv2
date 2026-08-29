@@ -1,0 +1,54 @@
+{
+  "name": "عيادة د. حسام منصور أبو كحلة | المنصة الطبية",
+  "short_name": "عيادة د. حسام",
+  "description": "الموقع الرسمي والمنصة الطبية لعيادة د. حسام منصور أبو كحلة - استشاري جراحة العظام والمفاصل والعمود الفقري. حجز كشف طبي، فروع طنطا وزفتى.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#fbfdfd",
+  "theme_color": "#0E3847",
+  "categories": ["medical", "health", "business"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "حجز موعد",
+      "short_name": "حجز موعد",
+      "url": "/booking",
+      "description": "احجز كشفك الطبي الآن"
+    },
+    {
+      "name": "الملف الطبي",
+      "short_name": "ملفى الطبي",
+      "url": "/patient-portal",
+      "description": "حجوزاتك وروشتاتك"
+    }
+  ]
+}
