@@ -137,7 +137,7 @@ function MainApp() {
       if (r.view === 'booking') {
         setBookingParams(r.bookingParams);
       }
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.scrollTo({ top: 0, behavior: 'auto' });
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -151,7 +151,7 @@ function MainApp() {
       window.history.pushState({}, '', newPath);
     }
     setCurrentView(view);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'auto' });
   }, []);
 
   const handleAdminNavigate = useCallback((page: AdminPageKey) => {

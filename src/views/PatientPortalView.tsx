@@ -88,6 +88,7 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
   const [profGender, setProfGender] = useState<'male' | 'female'>(user?.gender || 'male');
   const [profAge, setProfAge] = useState<string>(user?.age ? String(user?.age) : '');
   const [profSuccess, setProfSuccess] = useState<string | null>(null);
+  const [profSaving, setProfSaving] = useState(false);
 
   const fetchPatientData = async () => {
     if (!user) return;
@@ -180,7 +181,8 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
 
   const handleProfileSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || profSaving) return;
+    setProfSaving(true);
     setProfSuccess(null);
     try {
       const res = await api.updatePatientProfile({
@@ -199,6 +201,8 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
       }
     } catch (err: any) {
       toast.push({ kind: 'error', title: 'فشل الحفظ', description: err.message || 'حدث خطأ أثناء حفظ البيانات.' });
+    } finally {
+      setProfSaving(false);
     }
   };
 
@@ -233,14 +237,6 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
               </div>
 
               <div className="flex items-center gap-2.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => onNavigate('booking')}
-                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-3 sm:py-2.5 rounded-2xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-xs sm:text-sm shadow-md transition-colors active:scale-[0.98] cursor-pointer"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>حجز موعد جديد</span>
-                </button>
                 <button
                   type="button"
                   onClick={() => logout()}
@@ -643,9 +639,11 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({ onNavigate
             <div className="pt-2 flex justify-end">
               <button
                 type="submit"
-                className="px-6 py-3 rounded-2xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-xs sm:text-sm shadow-md transition-colors cursor-pointer active:scale-[0.98]"
+                disabled={profSaving}
+                className="px-6 py-3 rounded-2xl bg-[#E05A47] hover:bg-[#cf4f3d] text-white font-bold text-xs sm:text-sm shadow-md transition-colors cursor-pointer active:scale-[0.98] disabled:opacity-60 inline-flex items-center justify-center gap-2"
               >
-                حفظ التعديلات
+                {profSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                {profSaving ? 'جاري الحفظ...' : 'حفظ التعديلات'}
               </button>
             </div>
           </form>

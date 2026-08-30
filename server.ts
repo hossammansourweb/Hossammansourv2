@@ -694,11 +694,12 @@ app.post('/api/patient/appointments/:id/reschedule', authenticateToken, wrap(asy
 // Patient Update Profile
 app.put('/api/patient/profile', authenticateToken, wrap(async (req: AuthRequest, res) => {
   const user = req.user!;
-  const { name, email, age, gender } = req.body;
+  const { name, email, age, gender, phone } = req.body;
 
   const updated = await db.updateUser(user.id, {
     name: name?.trim() || user.name,
     email: email?.trim(),
+    phone: typeof phone === 'string' && phone.trim() ? phone.trim() : user.phone,
     age: age ? Number(age) : user.age,
     gender: gender || user.gender,
   });
