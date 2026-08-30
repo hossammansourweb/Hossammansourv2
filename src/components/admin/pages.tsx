@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Calendar,
   Users as UsersIcon,
@@ -839,6 +839,7 @@ export function WorkingHours() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [branchId, setBranchId] = useState('all');
+  const userPickedRef = useRef(false);
   const [exceptionModal, setExceptionModal] = useState(false);
   const [editingException, setEditingException] = useState<ScheduleException | null>(null);
   const [confirmDeleteEx, setConfirmDeleteEx] = useState<ScheduleException | null>(null);
@@ -855,13 +856,22 @@ export function WorkingHours() {
         api.getWorkingHours(branchId === 'all' ? undefined : branchId),
         api.getExceptions(branchId === 'all' ? undefined : branchId),
       ]);
-      setBranches(br.success ? br.data : []);
+      const loaded = br.success ? br.data : [];
+      setBranches(loaded);
       setRules(rl.success ? rl.data : []);
       setExceptions(ex.success ? ex.data : []);
+      if (!userPickedRef.current && loaded.length > 0 && branchId === 'all') {
+        setBranchId(loaded[0].id);
+      }
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   }, [branchId]);
   useEffect(() => { load(); }, [load]);
+
+  const onBranchChange = (v: string) => {
+    userPickedRef.current = true;
+    setBranchId(v);
+  };
 
   const doDeleteEx = async () => {
     if (!confirmDeleteEx) return;
@@ -900,7 +910,7 @@ export function WorkingHours() {
     <div>
       <div className="surface-card rounded-2xl p-4 mb-5">
         <div className="flex flex-col sm:flex-row gap-3 items-start">
-          <FilterBar onReset={() => setBranchId('all')} filters={[{ id: 'branch', label: 'الفرع', value: branchId, onChange: setBranchId, options: [{ v: 'all', label: 'كل الفروع' }, ...branches.map(b => ({ v: b.id, label: b.name }))] }]} />
+          <FilterBar onReset={() => { userPickedRef.current = true; setBranchId('all'); }} filters={[{ id: 'branch', label: 'الفرع', value: branchId, onChange: onBranchChange, options: [{ v: 'all', label: 'كل الفروع' }, ...branches.map(b => ({ v: b.id, label: b.name }))] }]} />
           <div className="flex-1" />
           {isSuperAdmin && (
             <button type="button" onClick={() => { setEditingException(null); setExceptionModal(true); }} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0E3847] dark:bg-teal-700 text-white text-xs font-bold hover:bg-[#092631] cursor-pointer whitespace-nowrap">

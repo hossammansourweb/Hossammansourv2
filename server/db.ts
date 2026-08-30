@@ -22,6 +22,18 @@ import {
 const timestamp = () => faFirestore.FieldValue.serverTimestamp();
 const writeAny = faFirestore.FieldValue as any;
 
+/** HH:MM -> h:MM AM/PM (server-side, mirrors the frontend 12-hour format). */
+function to12hTime(timeStr: string): string {
+  if (!timeStr) return '';
+  const [hStr, mStr] = timeStr.split(':');
+  let hours = parseInt(hStr, 10);
+  const mins = mStr || '00';
+  const period = hours >= 12 ? 'PM' : 'AM';
+  if (hours === 0) hours = 12;
+  else if (hours > 12) hours = hours - 12;
+  return `${hours}:${mins} ${period}`;
+}
+
 interface UserWithPassword extends User {
   passwordHash: string;
 }
@@ -753,7 +765,70 @@ class ClinicDatabase {
       content: `تم تسجيل حجزك بنجاح في عيادة د. حسام منصور برقم (${bookingNumber}) بتاريخ ${newAppointment.appointmentDate} الساعة ${newAppointment.appointmentTime} بـ ${newAppointment.branchName}.`,
     });
 
+    // Secondary Telegram notification — never allowed to break the booking.
+    this.notifyNewBookingTelegram(newAppointment).catch((e) => {
+      console.error('[telegram] new booking notification failed (booking still saved):', e?.code || '', String(e?.message || e).slice(0, 200));
+    });
+
     return newAppointment;
+  }
+
+  // In-memory dedupe so the same appointment is never notified twice per process.
+  private telegramNotified = new Set<string>();
+
+  /**
+   * Sends a server-side Telegram notification after a booking is saved.
+   * Token + chat id come ONLY from server-side env vars (never the client).
+   * Any failure here is logged safely and swallowed — it must never affect
+   * the already-saved booking or the API response.
+   */
+  public async notifyNewBookingTelegram(apt: Appointment): Promise<void> {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    if (!token || !chatId) {
+      console.warn('[telegram] TELEGRAM_BOT_TOKEN and/or TELEGRAM_CHAT_ID not configured; skipping new booking notification.');
+      return;
+    }
+    if (this.telegramNotified.has(apt.id)) return;
+    this.telegramNotified.add(apt.id);
+
+    const [y, m, d] = (apt.appointmentDate || '').split('-');
+    const dateDDMMYYYY = y && m && d ? `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}` : (apt.appointmentDate || '');
+    const time12 = to12hTime(apt.appointmentTime);
+    const when = `${dateDDMMYYYY} – ${time12}`;
+
+    const notes = apt.notes ? `\n📝 ملاحظات: ${apt.notes}` : '';
+
+    const message =
+      `🔔 حجز جديد\n\n` +
+      `👤 المريض: ${apt.patientName}\n` +
+      `📞 الهاتف: ${apt.patientPhone}\n` +
+      `🏥 الفرع: ${apt.branchName}\n` +
+      `📅 التاريخ: ${when}\n` +
+      `📋 الخدمة: ${apt.serviceName}\n` +
+      `🆔 رقم الحجز: ${apt.bookingNumber}${notes}`;
+
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: message }),
+        signal: controller.signal,
+      });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        console.error('[telegram] send failed:', resp.status, body?.description || '');
+      } else {
+        console.log('[telegram] new booking notification sent for', apt.bookingNumber);
+      }
+    } catch (e: any) {
+      console.error('[telegram] request error:', e?.code || '', String(e?.message || e).slice(0, 200));
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   public async updateAppointmentStatus(
